@@ -23,6 +23,8 @@ public partial class App : Application
     {
         // --selftest: check the process, efficiency and clipboard features, then quit (used by the build).
         if (Environment.GetCommandLineArgs().Contains("--selftest")) { Environment.Exit(await SelfTest.Run()); return; }
+        // --clean=ids: the Windows-wide part of Free Up Space, run elevated by Apex itself.
+        if (Environment.GetCommandLineArgs().FirstOrDefault(a => a.StartsWith("--clean=")) is { } clean) { Environment.Exit(Services.StorageClean.RunElevatedPart(clean[8..])); return; }
         window = new MainWindow();
         window.Activate();
     }

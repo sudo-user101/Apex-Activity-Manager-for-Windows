@@ -10,7 +10,7 @@ By **CyberNet Labs** · designed and built by sudo-user
 
 [Download](https://github.com/sudo-user101/Apex-Activity-Manager-for-Windows/releases/latest) ·
 [Changelog](CHANGELOG.md) ·
-[Apex for Mac](https://github.com/sudo-user101/Apex-Activity-Manager)
+[Apex for Mac](https://github.com/sudo-user101/Apex-Activity-Manager-MacOSX)
 
 </div>
 
@@ -37,6 +37,22 @@ fills and gentle animations.
   **Restore all** brings everything back.
 - **Free Up Memory** (Memory page): your apps by memory; Efficiency mode,
   trim their memory now, or close them and **Reopen** them later.
+- **Assistant:** ask about your PC in plain words, or say what to do:
+  “why is my PC slow?”, “close everything except my music app”, “steady
+  60 FPS in my game”. **Apex Agent** answers with this PC's readings and acts
+  only when you press its button; **Local AI** chats with a model running on
+  this PC (LM Studio or Ollama). Nothing leaves the PC.
+- **Gaming:** live FPS, 1% low and frame time for every app that's drawing,
+  and **Game mode**: other apps quieted, the fastest power plan, the game
+  at high priority, and the frame rate watched against your target, with
+  what's holding it back in plain words. Everything goes back afterwards.
+- **Free Up Space** (Disk page): **Clean** temporary files, caches, crash
+  reports and Windows Update leftovers (each explained, files in use
+  skipped), empty the Recycle Bin, and **Analyze** what takes the space.
+- **Network:** connections by app, ports in use with **Free Port**, your
+  public IP (hidden until you click), an internet **speed test**, and
+  **Network Doctor**, which checks each step from your PC to the internet
+  and says which one fails.
 - **Tray panel** (the icon by the clock): **Monitor** (CPU, memory, GPU,
   disk, network with mini graphs), **Energy** (battery, and **Stay Awake**
   for a while or until you turn it off) and **Clipboard** (the last 50
@@ -51,6 +67,16 @@ fills and gentle animations.
 - **Users** and **Services** (start, stop, restart).
 
 <p align="center">
+  <img src="docs/images/assistant.png" width="49%" alt="Assistant: questions and commands about this PC" />
+  <img src="docs/images/gaming.png" width="49%" alt="Gaming: frame rates and Game mode" />
+</p>
+
+<p align="center">
+  <img src="docs/images/storage.png" width="49%" alt="Free Up Space: Clean" />
+  <img src="docs/images/network.png" width="49%" alt="Network page with Network Doctor and speed test" />
+</p>
+
+<p align="center">
   <img src="docs/images/tray.png" width="300" alt="The tray panel: CPU, memory, GPU, disk and network with mini graphs" />
 </p>
 
@@ -61,7 +87,7 @@ fills and gentle animations.
 
 ## Install
 
-1. Download **Apex-Activity-Manager-1.1.0-Setup-x64.exe** from
+1. Download **Apex-Activity-Manager-1.2.0-Setup-x64.exe** from
    [Releases](https://github.com/sudo-user101/Apex-Activity-Manager-for-Windows/releases/latest).
 2. Run it. It installs for you only, without needing administrator rights
    (you can choose all users).
@@ -79,6 +105,11 @@ Restart as administrator**, or Windows will ask when it's needed.
 
 Apex has no account, no ads and no analytics. Everything it shows is read
 on your PC and stays there.
+
+## Third-party software
+
+Frame rates are read with Intel's open-source PresentMon (MIT licence), shipped
+with the app; see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
 
 ## Build from source
 

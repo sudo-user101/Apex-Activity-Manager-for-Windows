@@ -28,10 +28,12 @@ public sealed class MainWindow : Window
         VerticalAlignment = VerticalAlignment.Center,
     };
     readonly ContentControl host = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
-    readonly IPage[] pages = { new ProcessesPage(), new PerformancePage(), new StartupPage(), new UsersPage(), new ServicesPage() };
+    readonly IPage[] pages = { new ProcessesPage(), new PerformancePage(), new AssistantPage(), new GamingPage(), new StartupPage(), new UsersPage(), new ServicesPage() };
+    /// Page keys, for the Assistant's buttons and --page.
+    static readonly string[] Keys = { "processes", "performance", "assistant", "gaming", "startup", "users", "services" };
     static readonly (string Name, string Glyph)[] Pages =
     {
-        ("Processes", ""), ("Performance", ""), ("Startup apps", ""), ("Users", ""), ("Services", ""),
+        ("Processes", ""), ("Performance", ""), ("Assistant", "\uE99A"), ("Gaming", "\uE7FC"), ("Startup apps", ""), ("Users", ""), ("Services", ""),
     };
     readonly ColumnDefinition rightInset = new() { Width = new GridLength(140) };
     readonly Sampler sampler = new();
@@ -112,6 +114,7 @@ public sealed class MainWindow : Window
         {
             AppState.Record(s);
             Efficiency.Keep(s.Processes);
+            GameMode.Tick(s);
             if (AppWindow.IsVisible) pages[page].Update(s);
             trayPanel?.Update(s);
             tray?.SetTip($"Apex · CPU {Fmt.Percent(s.Cpu.Total)} · Memory {Fmt.Percent(s.Memory.Percent)}");
@@ -147,6 +150,8 @@ public sealed class MainWindow : Window
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => trayPanel.Toggle());
         if (args.Contains("--dialog=freeup") && Content is FrameworkElement root)
             root.Loaded += (_, _) => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => _ = FreeUpMemory.Show(root));
+        if (args.Contains("--dialog=storage") && Content is FrameworkElement root2)
+            root2.Loaded += (_, _) => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => _ = StorageView.Show(root2));
     }
 
     void ShowWindow()
@@ -160,6 +165,8 @@ public sealed class MainWindow : Window
     {
         quitting = true;
         StayAwake.Stop();
+        GameMode.Stop();
+        FrameMonitor.StopAll();
         Efficiency.RestoreAll(AppState.Latest.Processes);      // nothing stays slowed down after Apex quits
         tray?.Dispose(); tray = null;
         Application.Current.Exit();
@@ -181,6 +188,7 @@ public sealed class MainWindow : Window
 
     void Show(int index)
     {
+        if (index != page) pages[page].Hidden();
         page = index;
         var v = pages[index].View;
         host.Content = v;
@@ -233,6 +241,16 @@ public sealed class MainWindow : Window
             $"Version {typeof(MainWindow).Assembly.GetName().Version?.ToString(3)}\nBy CyberNet Labs · designed and built by sudo-user\n\nSee what your PC is doing, in plain words.");
         m.Items.Add(about);
         return m;
+    }
+
+    /// Opens a page by key ("gaming", "processes"…), bringing the window forward.
+    public static void Navigate(string key)
+    {
+        if (current is not { } w) return;
+        int i = Array.IndexOf(Keys, key);
+        if (i < 0) return;
+        w.ShowWindow();
+        w.tabs.Select(i);
     }
 
     /// Runs on the UI thread.

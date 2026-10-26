@@ -1,4 +1,5 @@
 using Apex.Core;
+using Apex.Services;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -18,6 +19,8 @@ internal sealed class PerformancePage : IPage
     readonly Dictionary<string, Tile> tiles = new();
     readonly Dictionary<string, Detail> details = new();
     string selected = "cpu";
+    /// --perf=net / --perf=disk opens on that resource (for the build's screenshots).
+    string? wanted = Environment.GetCommandLineArgs().FirstOrDefault(a => a.StartsWith("--perf="))?[7..];
     string layoutKey = "";
 
     public PerformancePage()
@@ -55,6 +58,7 @@ internal sealed class PerformancePage : IPage
                 }
                 sidebar.Children.Add(t);
             }
+            if (wanted != null && resources.FirstOrDefault(r => r.Key.StartsWith(wanted)).Key is { } w) { selected = w; wanted = null; }
             if (!resources.Any(r => r.Key == selected)) selected = resources.FirstOrDefault().Key ?? "cpu";
             Select(selected);
         }
@@ -283,6 +287,7 @@ internal sealed class DiskDetail : Detail
     public DiskDetail(string name) : base(name)
     {
         this.name = name;
+        AddAction("\uE74D", "Free Up Space: clean leftovers, or see what takes the space", () => _ = StorageView.Show(View));
         active = BigGraph(Theme.Disk, "Active time", "100%", 200);
         active.SetSeries((AppState.Get("disk:" + name), Theme.Disk, true));
         transfer = BigGraph(Theme.Disk, "Disk transfer rate (read, write)", "", 140);
@@ -309,23 +314,48 @@ internal sealed class NetDetail : Detail
 {
     readonly string id;
     readonly Graph graph;
-    readonly TextBlock send, receive, adapter, kind, v4, v6, speed;
+    readonly TextBlock send, receive, adapter, kind, v4, v6, speed, publicIp, tested;
+    readonly NetworkPanels panels = new();
+    string kindName = "Wi-Fi";
     public NetDetail(string id) : base("Network")
     {
         this.id = id;
+        AddAction("\uE9D9", "Network Doctor: why the internet is slow or not working", () => _ = NetworkDoctorView.Show(View, id, kindName));
+        AddAction("\uEC4A", "Internet connection speed (about 15 seconds)", () => _ = RunSpeedTest());
         graph = BigGraph(Theme.Network, "Throughput (receive, send)", "", 260);
         graph.Max = null;
         graph.SetSeries((AppState.Get("netin:" + id), Theme.Network, true), (AppState.Get("netout:" + id), Color.FromArgb(255, 200, 100, 0), false));
         send = AddStat("Send"); receive = AddStat("Receive"); adapter = AddStat("Adapter name"); kind = AddStat("Connection type");
         v4 = AddStat("IPv4 address"); v6 = AddStat("IPv6 address"); speed = AddStat("Link speed");
+        publicIp = AddStat("Public IP (click to show / hide)"); tested = AddStat("Internet speed");
         AddStatsCard();
+        View.Children.Add(panels.View);
+        publicIp.Tapped += (_, _) => { NetworkState.ShowPublicIp = !NetworkState.ShowPublicIp; Settings.Set("showPublicIp", NetworkState.ShowPublicIp); ShowIp(); };
+        _ = LookUpIp();
     }
+
+    async Task LookUpIp() { NetworkState.PublicIp ??= await NetworkTools.PublicIp(); ShowIp(); }
+
+    void ShowIp() => publicIp.Text = NetworkState.PublicIp == null ? "—" : NetworkState.ShowPublicIp ? NetworkState.PublicIp : "••• •••  (hidden)";
+
+    async Task RunSpeedTest()
+    {
+        tested.Text = "Testing…";
+        var r = await NetworkTools.SpeedTest(new Progress<string>(t => tested.Text = t));
+        if (r != null) NetworkState.LastSpeed = r;
+        ShowSpeed(r == null ? "The test couldn’t reach the speed-test servers." : null);
+    }
+
+    void ShowSpeed(string? error = null) => tested.Text = error ?? (NetworkState.LastSpeed is { } s
+        ? $"↓ {s.DownBitsPerSec / 1e6:0.0}  ↑ {s.UpBitsPerSec / 1e6:0.0} Mb/s" : "Not tested (header button)");
     public override void Update(Snapshot s)
     {
         var n = s.Networks.FirstOrDefault(x => x.Id == id);
         if (n == null) return;
-        Heading.Text = n.Kind; Device.Text = n.Description;
+        Heading.Text = n.Kind; Device.Text = n.Description; kindName = n.Kind;
         graph.Redraw();
+        panels.Refresh();
+        if (tested.Text.Length == 0) ShowSpeed();
         send.Text = Fmt.Bits(n.OutPerSec); receive.Text = Fmt.Bits(n.InPerSec); adapter.Text = n.Name; kind.Text = n.Kind;
         v4.Text = n.IPv4.Length > 0 ? n.IPv4 : "—"; v6.Text = n.IPv6.Length > 0 ? n.IPv6 : "—";
         speed.Text = n.SpeedBitsPerSec > 0 ? Fmt.Bits(n.SpeedBitsPerSec / 8.0) : "—";

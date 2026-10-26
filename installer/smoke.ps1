@@ -24,7 +24,7 @@ function Shot($name, $arguments) {
   Start-Sleep -Seconds 1
 }
 
-$names = "processes", "performance", "startup", "users", "services"
+$names = "processes", "performance", "assistant", "gaming", "startup", "users", "services"
 for ($i = 0; $i -lt $names.Count; $i++) { Shot "$i-$($names[$i])" @("--page=$i", "--maximize") }
 
 # Something to show in the clipboard tab.
@@ -33,6 +33,9 @@ Shot "tray-0-monitor" @("--page=1", "--tray=0")
 Shot "tray-1-energy" @("--page=1", "--tray=1")
 Shot "tray-2-clipboard" @("--page=1", "--tray=2")
 Shot "freeup" @("--page=1", "--maximize", "--dialog=freeup")
+Shot "network" @("--page=1", "--maximize", "--perf=net")
+Shot "disk" @("--page=1", "--maximize", "--perf=disk")
+Shot "storage" @("--page=1", "--maximize", "--dialog=storage")
 
 if (Test-Path "$env:TEMP\apex-crash.txt") { Get-Content "$env:TEMP\apex-crash.txt"; exit 1 }
 Write-Host "All pages opened without crashing."

@@ -8,6 +8,7 @@ internal static class AppState
 {
     public static readonly TimeSpan Window = TimeSpan.FromSeconds(60);
     public static Snapshot Latest { get; private set; } = new();
+    internal static void SetLatest(Snapshot s) => Latest = s;
 
     public static readonly TimeSeries Cpu = new(Window);
     public static readonly TimeSeries Memory = new(Window);
@@ -55,4 +56,12 @@ internal interface IPage
     Microsoft.UI.Xaml.UIElement View { get; }
     void Update(Snapshot s);
     void Shown() { }
+    /// Another page took its place.
+    void Hidden() { }
+}
+
+/// For the self-test: sets the latest snapshot without a sampler.
+internal static class AppStateTest
+{
+    public static void AppState_ForTest(Snapshot s) => AppState.SetLatest(s);
 }

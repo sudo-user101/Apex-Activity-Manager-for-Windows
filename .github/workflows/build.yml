@@ -23,6 +23,15 @@ jobs:
       - name: Build the app (x64)
         run: dotnet publish src/Apex.Windows/Apex.Windows.csproj -c Release -r win-x64 -p:Platform=x64 -o publish/x64
 
+      # Frame rates come from Intel's PresentMon (MIT), shipped as a tool. Pinned and checked.
+      - name: Add PresentMon
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force publish/x64/tools | Out-Null
+          Invoke-WebRequest https://github.com/GameTechDev/PresentMon/releases/download/v2.6.0/PresentMon-2.6.0-x64.exe -OutFile publish/x64/tools/PresentMon.exe
+          $h = (Get-FileHash publish/x64/tools/PresentMon.exe -Algorithm SHA256).Hash
+          if ($h -ne "B2A706BC6AD475749E3B7E3409263AA1E6906D45BDCF993F6DBC0F660188F1AF") { Write-Host "PresentMon checksum mismatch: $h"; exit 1 }
+
       - name: Open every page, screenshot, check for crashes
         shell: pwsh
         run: ./installer/smoke.ps1

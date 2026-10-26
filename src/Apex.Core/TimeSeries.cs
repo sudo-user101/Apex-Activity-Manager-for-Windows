@@ -18,6 +18,7 @@ public sealed class TimeSeries
         if (drop > 0) points.RemoveRange(0, drop);
     }
 
+    public void Clear() => points.Clear();
     public int Count => points.Count;
     public double Last => points.Count > 0 ? points[^1].Value : 0;
     public double Max => points.Count > 0 ? points.Max(p => p.Value) : 0;

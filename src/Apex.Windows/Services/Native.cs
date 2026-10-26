@@ -83,7 +83,7 @@ internal static partial class Native
     public static extern bool SetProcessInformation(IntPtr h, int infoClass, ref PROCESS_POWER_THROTTLING_STATE info, int size);
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool SetPriorityClass(IntPtr h, uint priorityClass);
-    public const uint IDLE_PRIORITY_CLASS = 0x40, NORMAL_PRIORITY_CLASS = 0x20;
+    public const uint IDLE_PRIORITY_CLASS = 0x40, NORMAL_PRIORITY_CLASS = 0x20, HIGH_PRIORITY_CLASS = 0x80;
     // Memory priority: lower = trimmed first under pressure ("a hint to the memory manager").
     [StructLayout(LayoutKind.Sequential)] public struct MEMORY_PRIORITY_INFORMATION { public uint MemoryPriority; }
     public const int ProcessMemoryPriority = 0;

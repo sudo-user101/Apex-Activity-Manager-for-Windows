@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.2.0 (2026-10-26)
+
+- **Assistant:** Apex Agent answers common questions with this PC's
+  readings and carries out commands after you press its button (end apps,
+  close everything except…, stop a process, Game mode with a frame-rate
+  target), always on the exact processes it named. **Local AI** chats with a
+  model on this PC (LM Studio or Ollama); nothing leaves the PC.
+- **Gaming:** live FPS, 1% low and frame time for every app that draws.
+  **Game mode** quiets other apps (untick what should keep running), uses the
+  fastest power plan, gives the game high priority, watches the frame rate
+  against your target and says what holds it back. Everything is restored
+  when you stop or close the game.
+- **Free Up Space:** Clean (temporary files, thumbnails, crash dumps and
+  error reports, browser and shader caches; Windows temp, Windows Update
+  downloads and Delivery Optimization with administrator rights), the Recycle
+  Bin, and Analyze (biggest folders first, Show in Explorer, Move to Recycle
+  Bin).
+- **Network:** connections by app (live, with Pause), ports in use with Free
+  Port, public IP (hidden until clicked), speed test, and Network Doctor.
+- Frame rates use Intel's open-source PresentMon (MIT); see
+  THIRD-PARTY-NOTICES.txt.
+
 ## 1.1.0 (2026-10-26)
 
 - **Tray panel:** Apex's icon by the clock opens Monitor (CPU, memory,

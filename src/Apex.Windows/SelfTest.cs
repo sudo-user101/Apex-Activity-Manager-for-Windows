@@ -75,6 +75,65 @@ internal static class SelfTest
             Clipboard.SetContent(s); Clipboard.Flush();
             await Task.Delay(1500);
             Check("a password manager's copy is skipped", !ClipboardHistory.Shared.Items.Any(i => i.Text == secret));
+
+            // Frame rates: the reader starts and Windows' graphics events arrive.
+            FrameMonitor.Acquire();
+            for (int i = 0; i < 40 && FrameMonitor.Status is FrameMonitor.State.Starting or FrameMonitor.State.Off; i++) await Task.Delay(250);
+            await Task.Delay(4000);
+            Check("frame-rate reader runs (trace session live, no errors)", FrameMonitor.Status == FrameMonitor.State.Running, $"{FrameMonitor.Status} {FrameMonitor.Detail}");
+            lines.Add("INFO apps drawing: " + string.Join(", ", FrameMonitor.Apps().Select(a => $"{a.App} {a.Stats.Fps:0} FPS")));
+            FrameMonitor.StopAll();
+
+            // Apex Agent on real readings: answers, and a quit command carries exact identities.
+            var agent = ApexAgent.Ask("why is my pc slow", new ApexAgent.Readings { Cpu = 10, MemoryTotal = 8L << 30, DiskTotal = 100L << 30, DiskFree = 50L << 30 });
+            Check("Apex Agent answers", !agent.Unknown && agent.Actions.Count > 0);
+            var (d2, id2) = Child(); children.Add(d2);
+            var r2 = new ApexAgent.Readings { Apps = new() { new ApexAgent.Item("Ping Test", d2.MainModule?.FileName ?? "", new[] { id2 }) } };
+            var quit = ApexAgent.Ask("close ping test", r2).Actions.OfType<ApexAgent.QuitApps>().FirstOrDefault();
+            Check("Apex Agent's quit button names the exact process", quit != null && quit.Targets.SequenceEqual(new[] { id2 }));
+            if (quit != null) { var rq = ProcessActions.End(quit.Targets); d2.WaitForExit(3000); Check("…and ends it", rq.Done.Contains(id2) && d2.HasExited); }
+
+            // Game mode: on (power plan, priority), then everything put back.
+            var plansBefore = GameMode.Plans().FirstOrDefault(p => p.Active)?.Id;
+            var (g, ig) = Child(); children.Add(g);
+            var path = g.MainModule?.FileName ?? "";
+            Apex.UI.AppStateTest.AppState_ForTest(new Snapshot { Processes = new[] { new ProcessSample { Pid = ig.Pid, CreateTime = ig.CreateTime, Path = path, Name = "cmd.exe", Kind = ProcessKind.App } } });
+            var said = GameMode.Start(path, "Test game", 60, Array.Empty<string>());
+            g.Refresh();
+            Check("Game mode raises the game's priority", g.PriorityClass == ProcessPriorityClass.High, said);
+            GameMode.Stop();
+            g.Refresh();
+            Check("Game mode puts the priority back", g.PriorityClass == ProcessPriorityClass.Normal, g.PriorityClass.ToString());
+            Check("Game mode puts the power plan back", GameMode.Plans().FirstOrDefault(p => p.Active)?.Id == plansBefore);
+
+            // Network: connections with owners, a listening port found, the Doctor's measurements.
+            var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0); listener.Start();
+            int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+            var conns = NetworkTools.Connections();
+            Check("connections are read with their apps", conns.Count > 0 && conns.Any(c => c.Listening && c.LocalPort == port && c.Pid == Environment.ProcessId), $"{conns.Count} endpoints");
+            listener.Stop();
+            var nic = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(n => n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up && n.NetworkInterfaceType != System.Net.NetworkInformation.NetworkInterfaceType.Loopback);
+            if (nic != null)
+            {
+                var input = await NetworkTools.Probe(nic.Id, "Ethernet", null);
+                var findings = NetworkDoctor.Diagnose(input);
+                Check("Network Doctor measures and explains", findings.Count > 0, string.Join(", ", findings.Select(f => f.Id)) + $" · router {input.Router?.Received}/{input.Router?.Sent} · dns {input.DnsMs:0} ms");
+            }
+            Check("public IP lookup", (await NetworkTools.PublicIp()) is { Length: > 6 });
+
+            // Storage: a scan of the temp folder, and cleaning only old files in a test folder.
+            var cats = StorageClean.Categories();
+            Check("storage categories", cats.Count >= 8 && cats.Any(c => c.NeedsAdmin));
+            var testRoot = Path.Combine(Path.GetTempPath(), "apex-selftest-clean");
+            Directory.CreateDirectory(testRoot);
+            var oldFile = Path.Combine(testRoot, "old.tmp"); File.WriteAllText(oldFile, "x"); File.SetLastWriteTime(oldFile, DateTime.Now.AddDays(-5));
+            var newFile = Path.Combine(testRoot, "new.tmp"); File.WriteAllText(newFile, "y");
+            var cat = new CleanCategory("t", "t", "", new[] { testRoot }, TimeSpan.FromDays(1));
+            var cr = Cleaner.Clean(cat, Cleaner.Scan(cat, DateTime.Now));
+            Check("clean removes only old files", cr.Removed == 1 && !File.Exists(oldFile) && File.Exists(newFile));
+            Directory.Delete(testRoot, true);
+            var (rbSize, rbItems) = StorageClean.RecycleBin();
+            lines.Add($"INFO recycle bin: {rbItems} items, {rbSize} bytes");
         }
         catch (Exception e) { Check("no exceptions", false, e.ToString()); }
         finally
