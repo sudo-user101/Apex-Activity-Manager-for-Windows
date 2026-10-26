@@ -1,0 +1,60 @@
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Core tests
+        run: dotnet test tests/Apex.Core.Tests -c Release
+
+      - name: Build the app (x64)
+        run: dotnet publish src/Apex.Windows/Apex.Windows.csproj -c Release -r win-x64 -p:Platform=x64 -o publish/x64
+
+      - name: Open every page, screenshot, check for crashes
+        shell: pwsh
+        run: ./installer/smoke.ps1
+
+      - name: Installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          $v = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version
+          & $iscc "/DAppVersion=$v" installer\Apex.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: dist/*.exe
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: shots/*.png
+
+      # A version tag (v1.0.0…) also publishes the installer as a release here.
+      - name: Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Already published by hand (with full notes)? Leave it as it is.
+          gh release view $env:GITHUB_REF_NAME 2>$null
+          if ($LASTEXITCODE -eq 0) { Write-Host "Release exists; not changed."; exit 0 }
+          gh release create $env:GITHUB_REF_NAME (Get-ChildItem dist\*.exe).FullName --title "Apex Activity Manager $env:GITHUB_REF_NAME" --notes "Windows installer."

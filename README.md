@@ -80,6 +80,19 @@ Restart as administrator**, or Windows will ask when it's needed.
 Apex has no account, no ads and no analytics. Everything it shows is read
 on your PC and stays there.
 
+## Build from source
+
+C#, WinUI 3 and the Windows App SDK. On Windows with the .NET 8 SDK:
+
+    dotnet test tests/Apex.Core.Tests
+    dotnet publish src/Apex.Windows -c Release -r win-x64 -p:Platform=x64 -o publish/x64
+
+`installer/Apex.iss` builds the installer with Inno Setup. Every push is
+built on Windows by the [Build workflow](.github/workflows/build.yml): core
+tests, every page opened and screenshotted, and a self-test
+(`Apex.exe --selftest`) of ending processes, Efficiency mode and the
+clipboard history.
+
 ## Every computer
 
 Apex's direction is simple: **if it's a computer, it can run Apex.** One app,
@@ -98,7 +111,21 @@ charge limits, for example), so an edition may have fewer of them. When it
 does, the app says so plainly instead of hiding the page. Install should
 never be the thing that stops you.
 
-## Licence
+## License
 
-Free to use. All rights reserved: see [LICENSE](LICENSE.md). The source code
-isn't published.
+**In plain English:** Apex is **free for personal use**. You can download,
+install and use it at no cost, and read and build its source code, for
+personal and other noncommercial purposes (hobby projects, study,
+research, charities, schools).
+
+- ✅ Use it, for free, for anything noncommercial
+- ✅ Read the source and build it yourself
+- ❌ Modify it or make new works based on it
+- ❌ Share or redistribute copies (point people to this page instead)
+- ❌ Use it commercially without a separate license
+
+For commercial use, open an issue to contact CyberNet Labs.
+
+The formal terms are the [PolyForm Strict License 1.0.0](LICENSE); if this
+summary and the license ever differ, the license applies.
+

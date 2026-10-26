@@ -17,6 +17,10 @@
 - **Safer End task:** Apex remembers exactly which process you chose and
   ends it through a handle checked against its start time, so a process
   that took the same ID is never ended. Anything not ended is explained.
+- **Source available:** the source code is now in this repository, under
+  the same licence as Apex for Mac (PolyForm Strict 1.0.0): free for
+  personal and other noncommercial use; read and build it, but no
+  modifying, redistributing or commercial use without a licence.
 
 ## 1.0.0 (2026-10-25): first Windows release
 
