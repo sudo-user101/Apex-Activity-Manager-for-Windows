@@ -29,9 +29,20 @@ fills and gentle animations.
 
 - **Processes.** Apps, background processes and Windows processes, each
   program with its processes underneath, heat-shaded CPU, memory, disk and
-  GPU columns, and search from the title bar. **End task**, or put an app in
-  **Efficiency mode** to keep it running while it uses less; **Restore all**
-  brings everything back.
+  GPU columns, and search from the title bar. **End task** acts only on the
+  exact process you chose, never on one that took its place. Put an app in
+  **Efficiency mode** to keep it running while it uses less: power-saving
+  cores, lowest priority, first to give back memory, minimized; it follows
+  the app's new processes and switches off when you bring the app back.
+  **Restore all** brings everything back.
+- **Free Up Memory** (Memory page): your apps by memory; Efficiency mode,
+  trim their memory now, or close them and **Reopen** them later.
+- **Tray panel** (the icon by the clock): **Monitor** (CPU, memory, GPU,
+  disk, network with mini graphs), **Energy** (battery, and **Stay Awake**
+  for a while or until you turn it off) and **Clipboard** (the last 50
+  things you copied, searchable; click to copy again; password managers'
+  copies are skipped; kept in memory only). Closing the window keeps Apex
+  by the clock; Quit from the icon's menu.
 - **Performance.** CPU, memory (with a clear Normal / Elevated / Critical
   pressure), every disk, every network connection and the GPU, each with a
   live graph and the details that matter.
@@ -40,13 +51,17 @@ fills and gentle animations.
 - **Users** and **Services** (start, stop, restart).
 
 <p align="center">
+  <img src="docs/images/tray.png" width="300" alt="The tray panel: CPU, memory, GPU, disk and network with mini graphs" />
+</p>
+
+<p align="center">
   <img src="docs/images/performance.png" width="49%" alt="Performance: CPU" />
   <img src="docs/images/startup.png" width="49%" alt="Startup apps" />
 </p>
 
 ## Install
 
-1. Download **Apex-Activity-Manager-1.0.0-Setup-x64.exe** from
+1. Download **Apex-Activity-Manager-1.1.0-Setup-x64.exe** from
    [Releases](https://github.com/sudo-user101/Apex-Activity-Manager-for-Windows/releases/latest).
 2. Run it. It installs for you only, without needing administrator rights
    (you can choose all users).

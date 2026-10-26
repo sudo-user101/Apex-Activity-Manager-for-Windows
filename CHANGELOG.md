@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.1.0 (2026-10-26)
+
+- **Tray panel:** Apex's icon by the clock opens Monitor (CPU, memory,
+  GPU, disk and network with mini graphs), Energy (battery and **Stay
+  Awake**) and **Clipboard history** (last 50 texts, files and pictures;
+  search; click to copy again; password managers' copies skipped; memory
+  only, switch off any time; Win+V link). Closing the window keeps Apex
+  running by the clock (a switch in Settings); Quit from the icon's menu.
+- **Free Up Memory** on the Memory page: apps by memory; Efficiency mode,
+  Trim memory, Close and remember, Reopen, Restore all.
+- **Efficiency mode** now also lowers the app's memory priority, minimizes
+  its windows, covers processes the app starts later, switches off when
+  you bring the app to the front, and restores the windows it minimized.
+  Nothing stays slowed down after Apex quits.
+- **Safer End task:** Apex remembers exactly which process you chose and
+  ends it through a handle checked against its start time, so a process
+  that took the same ID is never ended. Anything not ended is explained.
+
 ## 1.0.0 (2026-10-25): first Windows release
 
 - **Processes:** Apps, Background processes and Windows processes, each
