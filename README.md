@@ -65,6 +65,24 @@ Restart as administrator**, or Windows will ask when it's needed.
 Apex has no account, no ads and no analytics. Everything it shows is read
 on your PC and stays there.
 
+## Every computer
+
+Apex's direction is simple: **if it's a computer, it can run Apex.** One app,
+the same pages and the same plain words on every operating system and every
+kind of hardware:
+
+- **macOS:** Apple silicon and Intel.
+- **Windows:** x64 and ARM64 PCs.
+- **Linux:** desktops and servers, x86_64 and ARM (64- and 32-bit), the main
+  distributions and the small ones.
+- More to come, as they're tested: older versions of each system, and other
+  operating systems.
+
+Some features depend on what each system allows (fan control or battery
+charge limits, for example), so an edition may have fewer of them. When it
+does, the app says so plainly instead of hiding the page. Install should
+never be the thing that stops you.
+
 ## Licence
 
 Free to use. All rights reserved: see [LICENSE](LICENSE.md). The source code
