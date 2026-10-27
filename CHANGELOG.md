@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.3.0 (2026-10-28)
+
+- **Memory compression:** the Memory page shows whether it's on and what it
+  holds (also in the composition bar), the page file in use, and memory read
+  back from disk each second. A button explains it and turns it on or off
+  with Windows' own setting (administrator; takes effect after a restart).
+- **Analyze** any drive, not only your files: one walk per drive, folders
+  read in parallel, kept so moving between folders is instant; **Largest
+  files** anywhere on it; OneDrive's **online-only** files counted from their
+  attributes and marked (nothing downloads); linked folders not counted
+  twice; sizes update after Move to Recycle Bin. When Windows' own shared
+  system files make a drive add up to more than its used space, Analyze says
+  so and shows the real figure.
+- **Compress in place** (a folder in Analyze): screenshots and scans (PNG,
+  BMP, TIFF) become high-quality JPEGs keeping their names; smaller copies
+  first, then Done puts them in place and moves the originals to the Recycle
+  Bin. Photos with see-through parts, online-only files and JPEGs are left
+  as they are.
+
 ## 1.2.0 (2026-10-26)
 
 - **Assistant:** Apex Agent answers common questions with this PC's

@@ -248,10 +248,12 @@ internal sealed class MemoryDetail : Detail
     readonly Graph graph;
     readonly StackedBar bar = new();
     readonly ContentControl pressure = new();
-    readonly TextBlock inUse, available, committed, cached, paged, nonpaged;
+    readonly TextBlock inUse, available, committed, cached, paged, nonpaged, compression, pageFile, fromDisk;
+    MemoryStats last = new();
     public MemoryDetail() : base("Memory")
     {
         AddAction("\uEC4A", "Free Up Memory", () => _ = FreeUpMemory.Show(View));
+        AddAction("\uE946", "Memory compression: what it does, and turn it on or off", () => _ = MemoryCompression.Show(View, last));
         graph = BigGraph(Theme.Memory, "Memory usage", "", 240);
         graph.SetSeries((AppState.Memory, Theme.Memory, true));
         var comp = new StackPanel { Spacing = 6 };
@@ -262,6 +264,7 @@ internal sealed class MemoryDetail : Detail
         View.Children.Add(Theme.Card(comp));
         inUse = AddStat("In use (compressed)"); available = AddStat("Available"); committed = AddStat("Committed");
         cached = AddStat("Cached"); paged = AddStat("Paged pool"); nonpaged = AddStat("Non-paged pool");
+        compression = AddStat("Memory compression"); pageFile = AddStat("Page file in use"); fromDisk = AddStat("Read back from disk");
         AddStatsCard();
     }
     public override void Update(Snapshot s)
@@ -270,12 +273,16 @@ internal sealed class MemoryDetail : Detail
         Device.Text = $"{Fmt.Memory(m.Total)} installed";
         graph.Redraw();
         long cachedPart = Math.Min(m.Cached, m.Available);
-        bar.Set(m.Total, (m.Used, Theme.Memory, "In use"), (cachedPart, Color.FromArgb(255, 150, 150, 160), "Cached"));
+        long compressedPart = Math.Min(m.Compressed, m.Used);
+        bar.Set(m.Total, (m.Used - compressedPart, Theme.Memory, "In use"), (compressedPart, Color.FromArgb(255, 255, 159, 10), "Compressed"),
+                (cachedPart, Color.FromArgb(255, 150, 150, 160), "Cached"));
         var level = m.Pressure;
         pressure.Content = Theme.Pill("Pressure: " + MemoryPressure.Title(level), Theme.PressureColor(level));
         inUse.Text = $"{Fmt.Memory(m.Used)} ({Fmt.Memory(m.Compressed)})"; available.Text = Fmt.Memory(m.Available);
         committed.Text = $"{Fmt.Memory(m.Committed)}/{Fmt.Memory(m.CommitLimit)}"; cached.Text = Fmt.Memory(m.Cached);
         paged.Text = Fmt.Memory(m.PagedPool); nonpaged.Text = Fmt.Memory(m.NonPagedPool);
+        compression.Text = MemoryText.Compression(m); pageFile.Text = MemoryText.PageFile(m); fromDisk.Text = MemoryText.ReadsFromDisk(m);
+        last = m;
     }
 }
 

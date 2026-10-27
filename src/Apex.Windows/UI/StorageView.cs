@@ -12,11 +12,12 @@ namespace Apex.UI;
 /// Recycle Bin. Nothing of yours is touched without you choosing it.
 internal static class StorageView
 {
-    public static async Task Show(FrameworkElement anchor)
+    public static async Task Show(FrameworkElement anchor, bool analyze = false)
     {
         var tabs = new Pivot();
         tabs.Items.Add(new PivotItem { Header = "Clean", Content = CleanPane() });
         tabs.Items.Add(new PivotItem { Header = "Analyze", Content = AnalyzePane() });
+        if (analyze) tabs.SelectedIndex = 1;
         var d = new ContentDialog { Title = "Free Up Space", Content = tabs, CloseButtonText = "Done", XamlRoot = anchor.XamlRoot };
         d.Resources["ContentDialogMaxWidth"] = 820.0;
         try { await d.ShowAsync(); } catch { }
@@ -111,109 +112,274 @@ internal static class StorageView
 
     // ---- Analyze ------------------------------------------------------------------
 
+    /// Walks kept for this session, by place: switching back is instant.
+    static readonly Dictionary<string, (DiskTree Tree, DateTime At)> scans = new(StringComparer.OrdinalIgnoreCase);
+
+    static List<(string Label, string Path)> Places()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var list = new List<(string, string)> { ("Your files", home) };
+        foreach (var d in DriveInfo.GetDrives())
+        {
+            try
+            {
+                if (!d.IsReady || d.DriveType is DriveType.CDRom or DriveType.NoRootDirectory or DriveType.Unknown) continue;
+                var label = string.IsNullOrWhiteSpace(d.VolumeLabel) ? (d.DriveType == DriveType.Removable ? "USB drive" : "Local Disk") : d.VolumeLabel;
+                list.Add(($"{d.Name.TrimEnd('\\')} {label} · {Fmt.Bytes(d.AvailableFreeSpace)} free of {Fmt.Bytes(d.TotalSize)}", d.RootDirectory.FullName));
+            }
+            catch { }
+        }
+        return list;
+    }
+
     static UIElement AnalyzePane()
     {
         var root = new StackPanel { Spacing = 10, Width = 720 };
+        var places = Places();
+        var where = new ComboBox { MinWidth = 340 };
+        foreach (var p in places) where.Items.Add(p.Label);
+        var scanButton = new Button { Content = "Scan" };
+        var progress = new ProgressRing { IsActive = false, Width = 18, Height = 18 };
+        var top = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        top.Children.Add(where); top.Children.Add(scanButton); top.Children.Add(progress);
+        root.Children.Add(top);
+
+        var foldersView = new RadioButton { Content = "Folders", GroupName = "analyzeView", IsChecked = true };
+        var largestView = new RadioButton { Content = "Largest files", GroupName = "analyzeView" };
+        var views = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        views.Children.Add(foldersView); views.Children.Add(largestView);
+        root.Children.Add(views);
+
         var crumbs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         var list = new StackPanel { Spacing = 2 };
         var status = Theme.Text("", 13, Theme.Secondary);
+        status.TextWrapping = TextWrapping.Wrap;
         root.Children.Add(crumbs);
-        root.Children.Add(new ScrollViewer { Content = list, MaxHeight = 380 });
+        root.Children.Add(new ScrollViewer { Content = list, MaxHeight = 360 });
         root.Children.Add(status);
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var stack = new Stack<string>();
-        CancellationTokenSource? scan = null;
 
-        void Open(string folder)
+        CancellationTokenSource? scan = null;
+        DiskTree? tree = null;
+        string? showing = null;
+
+        void Show(string folder)
         {
-            scan?.Cancel();
-            scan = new CancellationTokenSource();
-            var token = scan.Token;
-            crumbs.Children.Clear();
-            var parts = new List<string>();
-            for (var d = new DirectoryInfo(folder); d != null; d = d.Parent) { parts.Insert(0, d.FullName); if (d.FullName.Equals(home, StringComparison.OrdinalIgnoreCase)) break; }
-            foreach (var p in parts)
+            if (tree == null) return;
+            showing = folder;
+            list.Children.Clear(); crumbs.Children.Clear();
+            if (largestView.IsChecked == true)
             {
-                var b = new HyperlinkButton { Content = p.Equals(home, StringComparison.OrdinalIgnoreCase) ? "Your files" : new DirectoryInfo(p).Name };
-                b.Click += (_, _) => Open(p);
+                var files = tree.Largest();
+                long max = Math.Max(1, files.Select(f => f.Size).DefaultIfEmpty(1).Max());
+                foreach (var f in files.Take(60)) list.Children.Add(Row(f.Path, f.Size, f.OnlineOnly ? f.Size : 0, false, max, Show, Removed, true));
+                status.Text = Summary(tree) + " The biggest files anywhere in it.";
+                return;
+            }
+            var node = tree.Find(folder) ?? tree.Top;
+            var trail = new List<DiskTree.Folder>();
+            for (var p = node.Path; ; )
+            {
+                if (tree.Find(p) is { } n) trail.Insert(0, n);
+                if (string.Equals(p, tree.Root, StringComparison.OrdinalIgnoreCase)) break;
+                var up = Path.GetDirectoryName(p.TrimEnd('\\'));
+                if (up == null) break;
+                p = up;
+            }
+            foreach (var n in trail)
+            {
+                var b = new HyperlinkButton { Content = n == tree.Top ? Path.GetFileName(tree.Root.TrimEnd('\\')) is { Length: > 0 } r ? r : tree.Root : n.Name };
+                var target = n.Path;
+                b.Click += (_, _) => Show(target);
                 crumbs.Children.Add(b);
                 crumbs.Children.Add(Theme.Text("›", 13, Theme.Secondary));
             }
             if (crumbs.Children.Count > 0) crumbs.Children.RemoveAt(crumbs.Children.Count - 1);
-            list.Children.Clear();
-            status.Text = "Measuring…";
+            var items = DiskTree.Contents(node).Take(80).ToList();
+            long biggest = Math.Max(1, items.Select(i => i.Size).DefaultIfEmpty(1).Max());
+            foreach (var i in items) list.Children.Add(Row(i.Path, i.Size, i.OnlineOnly, i.IsFolder, biggest, Show, Removed, false));
+            status.Text = $"{Fmt.Bytes(node.Size)} in {node.Name}" + (node.OnlineOnly > 0 ? $" ({Fmt.Bytes(node.OnlineOnly)} online-only, not on this PC)" : "")
+                + ". Double-click a folder to look inside. " + Summary(tree);
+        }
+
+        void Removed(string path)
+        {
+            tree?.Remove(path);
+            if (showing != null) Show(showing);
+        }
+
+        string Summary(DiskTree t)
+        {
+            var at = scans.TryGetValue(t.Root, out var e) ? e.At : DateTime.Now;
+            var mins = (int)(DateTime.Now - at).TotalMinutes;
+            return $"{t.FileCount:N0} files, measured {(mins < 1 ? "just now" : $"{mins} min ago")}"
+                + (t.Unreadable > 0 ? $"; {t.Unreadable:N0} folders Windows didn't let Apex read (other users' or the system's) aren't counted" : "")
+                + (t.Stopped ? "; stopped before the end, so totals are partial" : "") + "." + HardLinkNote(t);
+        }
+
+        // Windows keeps many of its own files in several folders at once (hard links,
+        // mostly in WinSxS); a walk counts each place, as File Explorer does.
+        static string HardLinkNote(DiskTree t)
+        {
+            try
+            {
+                if (!string.Equals(Path.GetPathRoot(t.Root), t.Root, StringComparison.OrdinalIgnoreCase)) return "";
+                var d = new DriveInfo(t.Root);
+                long used = d.TotalSize - d.TotalFreeSpace;
+                return t.Top.Size - t.Top.OnlineOnly > used * 1.02
+                    ? $" The drive has {Fmt.Bytes(used)} in use: Windows keeps some of its files in several folders at once (hard links), and each place is counted, so the total here is higher."
+                    : "";
+            }
+            catch { return ""; }
+        }
+
+        void Start(bool fresh)
+        {
+            if (where.SelectedIndex < 0) return;
+            var path = places[where.SelectedIndex].Path;
+            scan?.Cancel();
+            if (!fresh && scans.TryGetValue(path, out var cached)) { tree = cached.Tree; Show(path); scanButton.Content = "Scan Again"; return; }
+            var cts = scan = new CancellationTokenSource();
+            list.Children.Clear(); crumbs.Children.Clear();
+            progress.IsActive = true;
+            scanButton.Content = "Stop";
+            status.Text = "Measuring… nothing is downloaded or changed.";
             _ = Task.Run(() =>
             {
-                var entries = new List<(string Path, long Size, bool Folder)>();
-                try
-                {
-                    foreach (var d in Directory.EnumerateDirectories(folder))
-                    {
-                        if (token.IsCancellationRequested) return;
-                        if (new DirectoryInfo(d).Attributes.HasFlag(FileAttributes.ReparsePoint)) continue;
-                        entries.Add((d, FolderSize(d, token), true));
-                    }
-                    foreach (var f in Directory.EnumerateFiles(folder))
-                        try { entries.Add((f, new FileInfo(f).Length, false)); } catch { }
-                }
-                catch { }
-                if (token.IsCancellationRequested) return;
-                var top = entries.OrderByDescending(e => e.Size).Take(40).ToList();
-                long max = Math.Max(1, top.Select(e => e.Size).DefaultIfEmpty(1).Max());
+                var t = DiskTree.Scan(path, cts.Token, n => MainWindow.Ui(() => { if (scan == cts) status.Text = $"Measuring… {n:N0} files so far. Nothing is downloaded or changed."; }));
                 MainWindow.Ui(() =>
                 {
-                    if (token.IsCancellationRequested) return;
-                    foreach (var e in top) list.Children.Add(Row(e.Path, e.Size, e.Folder, max, Open, () => Open(folder)));
-                    status.Text = $"{Fmt.Bytes(entries.Sum(e => e.Size))} in {new DirectoryInfo(folder).Name}. Double-click a folder to look inside.";
+                    if (scan != cts) return;      // another place was chosen meanwhile: this walk is dropped
+                    scans[path] = (t, DateTime.Now);
+                    tree = t;
+                    progress.IsActive = false;
+                    scanButton.Content = "Scan Again";
+                    scan = null;
+                    Show(path);
                 });
             });
         }
-        Open(home);
+
+        scanButton.Click += (_, _) =>
+        {
+            if (scan != null) { scan.Cancel(); return; }      // Stop: keeps what was measured
+            Start(true);
+        };
+        where.SelectionChanged += (_, _) => Start(false);
+        foldersView.Checked += (_, _) => { if (tree != null) Show(showing ?? tree.Root); };
+        largestView.Checked += (_, _) => { if (tree != null) Show(showing ?? tree.Root); };
+        where.SelectedIndex = 0;
         return root;
     }
 
-    static UIElement Row(string path, long size, bool folder, long max, Action<string> open, Action refresh)
+    static UIElement Row(string path, long size, long onlineOnly, bool folder, long max, Action<string> open, Action<string> removed, bool showFolder)
     {
         var g = new Grid { ColumnSpacing = 10, Padding = new Thickness(4, 4, 4, 4), Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent) };
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(140) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var name = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        name.Children.Add(Theme.Icon(folder ? "" : "", 14));
-        name.Children.Add(Theme.Text(Path.GetFileName(path), 14));
+        name.Children.Add(Theme.Icon(folder ? "" : "", 14));
+        var title = new StackPanel();
+        title.Children.Add(Theme.Text(Path.GetFileName(path.TrimEnd('\\')) is { Length: > 0 } n ? n : path, 14));
+        if (showFolder) title.Children.Add(Theme.Text(Path.GetDirectoryName(path) ?? "", 11, Theme.Tertiary));
+        name.Children.Add(title);
+        if (onlineOnly > 0)
+        {
+            var cloud = Theme.Icon("", 12);
+            ToolTipService.SetToolTip(cloud, onlineOnly >= size ? "Online-only: in the cloud, not stored on this PC" : $"{Fmt.Bytes(onlineOnly)} of it is online-only (not stored on this PC)");
+            name.Children.Add(cloud);
+        }
         g.Children.Add(name);
         var bar = new ProgressBar { Maximum = max, Value = size, VerticalAlignment = VerticalAlignment.Center };
-        var sizeText = Theme.Text(Fmt.Bytes(size), 12, Theme.Secondary);
+        var sizeText = Theme.Text(Fmt.Bytes(size) + (onlineOnly > 0 && onlineOnly < size ? $" · {Fmt.Bytes(size - onlineOnly)} on this PC" : ""), 12, Theme.Secondary);
         var mid = new StackPanel(); mid.Children.Add(sizeText); mid.Children.Add(bar);
         Grid.SetColumn(mid, 1); g.Children.Add(mid);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        var show = new Button { Content = Theme.Icon("", 14) };
+        if (folder)
+        {
+            var compress = new Button { Content = Theme.Icon("", 14) };
+            ToolTipService.SetToolTip(compress, "Compress in place: screenshots and scans in this folder made smaller, keeping their names");
+            compress.Click += (_, _) => _ = CompressInPlace(g, path);
+            actions.Children.Add(compress);
+        }
+        var show = new Button { Content = Theme.Icon("", 14) };
         ToolTipService.SetToolTip(show, "Show in File Explorer");
         show.Click += (_, _) => Process.Start("explorer.exe", $"/select,\"{path}\"");
         var bin = new Button { Content = Theme.Icon("", 14) };
         ToolTipService.SetToolTip(bin, "Move to the Recycle Bin (you can restore it from there)");
-        bin.Click += (_, _) => { bin.IsEnabled = false; if (StorageClean.ToRecycleBin(path)) refresh(); else bin.IsEnabled = true; };
+        bin.Click += (_, _) => { bin.IsEnabled = false; if (StorageClean.ToRecycleBin(path)) removed(path); else bin.IsEnabled = true; };
         actions.Children.Add(show); actions.Children.Add(bin);
         Grid.SetColumn(actions, 2); g.Children.Add(actions);
         if (folder) g.DoubleTapped += (_, _) => open(path);
         return g;
     }
 
-    static long FolderSize(string dir, CancellationToken token)
+    // ---- Compress in place ----------------------------------------------------------
+
+    /// Like the Mac: count → smaller copies next to each photo → Done swaps
+    /// them in (originals to the Recycle Bin), Cancel throws the copies away.
+    public static async Task CompressInPlace(FrameworkElement anchor, string folder)
     {
-        long total = 0;
-        var stack = new Stack<string>(); stack.Push(dir);
-        while (stack.Count > 0 && !token.IsCancellationRequested)
+        var body = new StackPanel { Spacing = 10, Width = 520 };
+        var text = Theme.Text("Counting photos…", 14);
+        text.TextWrapping = TextWrapping.Wrap;
+        var bar = new ProgressBar { Visibility = Visibility.Collapsed };
+        var note = Theme.Caption("Screenshots and scans (PNG, BMP, TIFF) become JPEGs at high quality, keeping their names. "
+            + "JPEG photos are left as they are: re-saving one loses quality and its details (date taken, place). "
+            + "Online-only files are left too (they'd have to download first).");
+        body.Children.Add(text); body.Children.Add(bar); body.Children.Add(note);
+        var d = new ContentDialog { Title = "Compress in Place", Content = body, PrimaryButtonText = "Make Smaller Copies", CloseButtonText = "Cancel",
+                                    IsPrimaryButtonEnabled = false, XamlRoot = anchor.XamlRoot };
+        var cts = new CancellationTokenSource();
+        List<InPlaceCompress.Photo> photos = new();
+        List<InPlaceCompress.Copy> copies = new();
+        bool made = false, done = false;
+
+        var (found, online) = await Task.Run(() => InPlaceCompress.Plan(folder));
+        int jpegs = await Task.Run(() => { try { return Directory.EnumerateFiles(folder).Count(InPlaceCompress.IsJpeg); } catch { return 0; } });
+        photos = found;
+        text.Text = photos.Count == 0
+            ? "No screenshots or scans to compress here." + (jpegs > 0 ? $" ({jpegs} JPEG photos are already compressed.)" : "")
+            : $"{photos.Count} to compress ({Fmt.Bytes(photos.Sum(p => p.Size))})." + (online > 0 ? $" {online} online-only left out." : "")
+              + (jpegs > 0 ? $" {jpegs} JPEGs left as they are." : "");
+        d.IsPrimaryButtonEnabled = photos.Count > 0;
+
+        d.PrimaryButtonClick += async (_, args) =>
         {
-            var d = stack.Pop();
-            try
+            if (done) return;
+            args.Cancel = true;      // stay open: copies first, then Done
+            var deferral = args.GetDeferral();
+            if (!made)
             {
-                foreach (var f in Directory.EnumerateFiles(d)) try { total += new FileInfo(f).Length; } catch { }
-                foreach (var s in Directory.EnumerateDirectories(d))
-                    if (!new DirectoryInfo(s).Attributes.HasFlag(FileAttributes.ReparsePoint)) stack.Push(s);
+                d.IsPrimaryButtonEnabled = false;
+                bar.Visibility = Visibility.Visible;
+                var r = await PhotoCompress.MakeCopies(photos, (i, n) => MainWindow.Ui(() => { bar.Maximum = n; bar.Value = i; text.Text = $"Making smaller copies… {i} of {n}"; }), cts.Token);
+                copies = r.Copies;
+                made = true;
+                bar.Visibility = Visibility.Collapsed;
+                long before = copies.Sum(c => c.Before), after = copies.Sum(c => c.After);
+                text.Text = copies.Count == 0
+                    ? "None of them could be made smaller." + (r.Skipped.Count > 0 ? $" ({r.Skipped[0].Why})" : "")
+                    : $"Saves {Fmt.Bytes(before - after)}: {copies.Count} photos go from {Fmt.Bytes(before)} to {Fmt.Bytes(after)}."
+                      + (r.Skipped.Count > 0 ? $" {r.Skipped.Count} left as they are (for example “{r.Skipped[0].Name}”: {r.Skipped[0].Why})." : "")
+                      + " Done puts them in place and moves the originals to the Recycle Bin.";
+                d.PrimaryButtonText = "Done";
+                d.IsPrimaryButtonEnabled = copies.Count > 0;
             }
-            catch { }
-        }
-        return total;
+            else
+            {
+                d.IsPrimaryButtonEnabled = false;
+                var failed = await Task.Run(() => InPlaceCompress.SwapIn(copies, StorageClean.ToRecycleBin));
+                InPlaceCompress.Discard(copies.Where(c => failed.Contains(Path.GetFileName(c.Original))));
+                done = true;
+                text.Text = failed.Count == 0 ? $"Done: {copies.Count} photos replaced; the originals are in the Recycle Bin."
+                                              : $"{copies.Count - failed.Count} replaced; {failed.Count} left as they were (for example “{failed[0]}”).";
+                d.PrimaryButtonText = ""; d.CloseButtonText = "Close";
+            }
+            deferral.Complete();
+        };
+        try { await d.ShowAsync(); } catch { }
+        cts.Cancel();
+        if (!done) InPlaceCompress.Discard(copies);
     }
 }

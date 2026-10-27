@@ -37,6 +37,9 @@ fills and gentle animations.
   **Restore all** brings everything back.
 - **Free Up Memory** (Memory page): your apps by memory; Efficiency mode,
   trim their memory now, or close them and **Reopen** them later.
+- **Memory compression** (Memory page): whether it's on and what it holds,
+  the page file in use, how much memory is read back from disk, and a
+  switch to turn compression on or off (as administrator; after a restart).
 - **Assistant:** ask about your PC in plain words, or say what to do:
   “why is my PC slow?”, “close everything except my music app”, “steady
   60 FPS in my game”. **Apex Agent** answers with this PC's readings and acts
@@ -48,7 +51,11 @@ fills and gentle animations.
   what's holding it back in plain words. Everything goes back afterwards.
 - **Free Up Space** (Disk page): **Clean** temporary files, caches, crash
   reports and Windows Update leftovers (each explained, files in use
-  skipped), empty the Recycle Bin, and **Analyze** what takes the space.
+  skipped), empty the Recycle Bin, and **Analyze** what takes the space on
+  any drive: folders biggest first, the largest files, OneDrive's
+  online-only files marked (nothing downloads). **Compress in place** makes
+  a folder's screenshots and scans smaller, keeping their names, with the
+  originals in the Recycle Bin.
 - **Network:** connections by app, ports in use with **Free Port**, your
   public IP (hidden until you click), an internet **speed test**, and
   **Network Doctor**, which checks each step from your PC to the internet
@@ -87,7 +94,7 @@ fills and gentle animations.
 
 ## Install
 
-1. Download **Apex-Activity-Manager-1.2.0-Setup-x64.exe** from
+1. Download **Apex-Activity-Manager-1.3.0-Setup-x64.exe** from
    [Releases](https://github.com/sudo-user101/Apex-Activity-Manager-for-Windows/releases/latest).
 2. Run it. It installs for you only, without needing administrator rights
    (you can choose all users).

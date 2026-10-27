@@ -45,7 +45,7 @@ internal sealed class Sampler : IDisposable
             @"\Processor Information(_Total)\% Processor Performance",
             @"\PhysicalDisk(*)\% Idle Time", @"\PhysicalDisk(*)\Disk Read Bytes/sec", @"\PhysicalDisk(*)\Disk Write Bytes/sec",
             @"\PhysicalDisk(*)\Avg. Disk sec/Transfer",
-            @"\GPU Engine(*)\Utilization Percentage", @"\GPU Adapter Memory(*)\Dedicated Usage", @"\GPU Adapter Memory(*)\Shared Usage",
+            @"\GPU Engine(*)\Utilization Percentage", @"\GPU Adapter Memory(*)\Dedicated Usage", @"\GPU Adapter Memory(*)\Shared Usage", @"\Memory\Pages Input/sec",
             @"\Memory\Cache Bytes", @"\Memory\Pool Paged Bytes", @"\Memory\Pool Nonpaged Bytes" })
             pdh.Add(p);
         pdh.Collect();
@@ -62,7 +62,7 @@ internal sealed class Sampler : IDisposable
 
     public void Dispose() { cts.Cancel(); pdh.Dispose(); }
 
-    Snapshot Sample()
+    internal Snapshot Sample()
     {
         var now = DateTime.Now;
         var elapsed = lastTime == default ? TimeSpan.Zero : now - lastTime;
@@ -242,20 +242,47 @@ internal sealed class Sampler : IDisposable
 
     // ---- Memory -----------------------------------------------------------------
 
-    static MemoryStats Memory(List<ProcessSample> procs)
+    MemoryStats Memory(List<ProcessSample> procs)
     {
         var m = new Native.MEMORYSTATUSEX { dwLength = (uint)Marshal.SizeOf<Native.MEMORYSTATUSEX>() };
         Native.GlobalMemoryStatusEx(ref m);
         Native.GetPerformanceInfo(out var pi, (uint)Marshal.SizeOf<Native.PERFORMANCE_INFORMATION>());
         long page = (long)pi.PageSize;
+        // Running when (and only when) memory compression is on.
         var compression = procs.FirstOrDefault(p => p.Name == "Memory Compression");
+        var (pfUsed, pfSize) = PageFile();
         return new MemoryStats
         {
             Total = (long)m.ullTotalPhys, Available = (long)m.ullAvailPhys,
             Committed = (long)pi.CommitTotal * page, CommitLimit = (long)pi.CommitLimit * page,
             Cached = (long)pi.SystemCache * page, PagedPool = (long)pi.KernelPaged * page, NonPagedPool = (long)pi.KernelNonpaged * page,
-            Compressed = compression?.Memory ?? 0,
+            Compressed = compression?.Memory ?? 0, CompressionOn = compression != null,
+            PageFileUsed = pfUsed, PageFileSize = pfSize,
+            PagesInPerSec = pdh.Single(@"\Memory\Pages Input/sec"),
         };
+    }
+
+    (long Used, long Size) pageFile;
+    DateTime pageFileRead;
+
+    /// Page files in use and their size (WMI, MB), re-read every 30 s.
+    (long Used, long Size) PageFile()
+    {
+        if (DateTime.UtcNow - pageFileRead < TimeSpan.FromSeconds(30)) return pageFile;
+        pageFileRead = DateTime.UtcNow;
+        try
+        {
+            using var s = new System.Management.ManagementObjectSearcher("SELECT CurrentUsage, AllocatedBaseSize FROM Win32_PageFileUsage");
+            long used = 0, size = 0;
+            foreach (System.Management.ManagementObject o in s.Get())
+            {
+                used += Convert.ToInt64(o["CurrentUsage"]) * 1024 * 1024;
+                size += Convert.ToInt64(o["AllocatedBaseSize"]) * 1024 * 1024;
+            }
+            pageFile = (used, size);
+        }
+        catch { }
+        return pageFile;
     }
 
     // ---- Disks ------------------------------------------------------------------

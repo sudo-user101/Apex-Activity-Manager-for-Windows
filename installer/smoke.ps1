@@ -36,6 +36,9 @@ Shot "freeup" @("--page=1", "--maximize", "--dialog=freeup")
 Shot "network" @("--page=1", "--maximize", "--perf=net")
 Shot "disk" @("--page=1", "--maximize", "--perf=disk")
 Shot "storage" @("--page=1", "--maximize", "--dialog=storage")
+Shot "memory" @("--page=1", "--maximize", "--perf=memory")
+Shot "memory-compression" @("--page=1", "--maximize", "--perf=memory", "--dialog=compression")
+Shot "analyze" @("--page=1", "--maximize", "--dialog=analyze")
 
 if (Test-Path "$env:TEMP\apex-crash.txt") { Get-Content "$env:TEMP\apex-crash.txt"; exit 1 }
 Write-Host "All pages opened without crashing."

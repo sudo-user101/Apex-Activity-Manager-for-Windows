@@ -58,6 +58,14 @@ public sealed record MemoryStats
     public long PagedPool { get; init; }
     public long NonPagedPool { get; init; }
     public long Compressed { get; init; }
+    /// Memory compression is on (Windows' "Memory Compression" process is running).
+    public bool CompressionOn { get; init; }
+    /// The page file (Windows' swap): in use, and its current size.
+    public long PageFileUsed { get; init; }
+    public long PageFileSize { get; init; }
+    /// Pages read back from disk each second (hard faults): memory that had to
+    /// leave for the page file and is needed again.
+    public double PagesInPerSec { get; init; }
     public double Percent => Total > 0 ? Used * 100.0 / Total : 0;
     public PressureLevel Pressure => MemoryPressure.Level(this);
 }

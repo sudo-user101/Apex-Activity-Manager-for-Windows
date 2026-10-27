@@ -152,6 +152,11 @@ public sealed class MainWindow : Window
             root.Loaded += (_, _) => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => _ = FreeUpMemory.Show(root));
         if (args.Contains("--dialog=storage") && Content is FrameworkElement root2)
             root2.Loaded += (_, _) => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => _ = StorageView.Show(root2));
+        if (args.Contains("--dialog=analyze") && Content is FrameworkElement root3)
+            root3.Loaded += (_, _) => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => _ = StorageView.Show(root3, analyze: true));
+        // After a few readings, so it shows this PC's real figures.
+        if (args.Contains("--dialog=compression") && Content is FrameworkElement root4)
+            root4.Loaded += async (_, _) => { await Task.Delay(4000); _ = MemoryCompression.Show(root4, AppState.Latest.Memory); };
     }
 
     void ShowWindow()

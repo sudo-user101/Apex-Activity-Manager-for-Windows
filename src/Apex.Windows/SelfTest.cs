@@ -134,6 +134,73 @@ internal static class SelfTest
             Directory.Delete(testRoot, true);
             var (rbSize, rbItems) = StorageClean.RecycleBin();
             lines.Add($"INFO recycle bin: {rbItems} items, {rbSize} bytes");
+
+            // Analyze: a walk with an online-only file and a junction back to the top (must not loop).
+            var tree = Path.Combine(Path.GetTempPath(), "apex-selftest-tree");
+            if (Directory.Exists(tree)) Directory.Delete(tree, true);
+            Directory.CreateDirectory(Path.Combine(tree, "Photos", "2024"));
+            File.WriteAllBytes(Path.Combine(tree, "Photos", "a.bin"), new byte[5000]);
+            File.WriteAllBytes(Path.Combine(tree, "Photos", "2024", "b.bin"), new byte[3000]);
+            var cloudFile = Path.Combine(tree, "cloud.bin");
+            File.WriteAllBytes(cloudFile, new byte[7000]);
+            File.SetAttributes(cloudFile, FileAttributes.Offline);
+            Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{Path.Combine(tree, "Loop")}\" \"{tree}\"") { CreateNoWindow = true, UseShellExecute = false })!.WaitForExit(10_000);
+            Check("a junction was made for the test", new DirectoryInfo(Path.Combine(tree, "Loop")).LinkTarget != null);
+            var dt = DiskTree.Scan(tree);
+            Check("Analyze: totals, online-only, junction not followed",
+                  dt.Top.Size == 15000 && dt.FileCount == 3 && dt.Top.OnlineOnly == 7000 && dt.Find(Path.Combine(tree, "Photos"))?.Size == 8000,
+                  $"size {dt.Top.Size}, files {dt.FileCount}, online-only {dt.Top.OnlineOnly}");
+            Check("Analyze: largest first", dt.Largest().Select(f => f.Name).SequenceEqual(new[] { "cloud.bin", "a.bin", "b.bin" }));
+            Directory.Delete(Path.Combine(tree, "Loop"));
+            Directory.Delete(tree, true);
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var sw = Stopwatch.StartNew();
+            var homeTree = DiskTree.Scan(home);
+            lines.Add($"INFO Analyze of {home}: {homeTree.FileCount:N0} files, {homeTree.Top.Size:N0} bytes, {homeTree.Unreadable} unreadable, {sw.Elapsed.TotalSeconds:0.0} s");
+            var sysRoot = Path.GetPathRoot(Environment.SystemDirectory)!;
+            if (Environment.GetEnvironmentVariable("APEX_COMPARE_WALK") == "1")
+            {
+                // How fast Windows' own lister walks the same drive (list only, nothing copied).
+                sw.Restart();
+                var rc = Process.Start(new ProcessStartInfo("robocopy.exe", $"{sysRoot} NUL /L /S /XJ /R:0 /W:0 /NJH /NJS /NFL /NDL /NP /MT:8") { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true })!;
+                rc.StandardOutput.ReadToEnd(); rc.WaitForExit();
+                lines.Add($"INFO robocopy list of {sysRoot}: {sw.Elapsed.TotalSeconds:0.0} s");
+            }
+            sw.Restart();
+            var driveTree = DiskTree.Scan(sysRoot);
+            lines.Add($"INFO Analyze of {sysRoot}: {driveTree.FileCount:N0} files, {driveTree.Top.Size:N0} bytes, {driveTree.Unreadable} unreadable, {sw.Elapsed.TotalSeconds:0.0} s; drive used {new DriveInfo(sysRoot).TotalSize - new DriveInfo(sysRoot).TotalFreeSpace:N0}");
+
+            // Compress in place: real PNGs, one opaque (becomes a JPEG), one see-through (left), the originals to the Recycle Bin.
+            var shots = Path.Combine(Path.GetTempPath(), "apex-selftest-shots");
+            if (Directory.Exists(shots)) Directory.Delete(shots, true);
+            Directory.CreateDirectory(shots);
+            await PhotoCompress.WriteTestPng(Path.Combine(shots, "Screenshot.png"), 1400, 900, seeThrough: false);
+            await PhotoCompress.WriteTestPng(Path.Combine(shots, "Icon.png"), 400, 400, seeThrough: true);
+            File.WriteAllBytes(Path.Combine(shots, "Screenshot.jpg"), new byte[10]);      // the name is taken: the copy must not overwrite it
+            var (plan, onlineCount) = InPlaceCompress.Plan(shots);
+            Check("Compress in place: plan", plan.Count == 2 && onlineCount == 0, string.Join(", ", plan.Select(p => Path.GetFileName(p.Path))));
+            var made = await PhotoCompress.MakeCopies(plan, (_, _) => { }, CancellationToken.None);
+            Check("Compress in place: the opaque PNG got a smaller copy, the see-through one was left",
+                  made.Copies.Count == 1 && made.Skipped.Any(x => x.Name == "Icon.png"),
+                  string.Join("; ", made.Copies.Select(c => $"{Path.GetFileName(c.Original)} {c.Before}→{c.After}")) + " | " + string.Join("; ", made.Skipped.Select(x => $"{x.Name}: {x.Why}")));
+            var swapFailed = InPlaceCompress.SwapIn(made.Copies, StorageClean.ToRecycleBin);
+            var names = Directory.GetFiles(shots).Select(Path.GetFileName).OrderBy(n => n).ToArray();
+            Check("Compress in place: swapped in under a free name, original in the Recycle Bin",
+                  swapFailed.Count == 0 && names.SequenceEqual(new[] { "Icon.png", "Screenshot 2.jpg", "Screenshot.jpg" }) && new FileInfo(Path.Combine(shots, "Screenshot 2.jpg")).Length > 1000,
+                  string.Join(", ", names));
+            Directory.Delete(shots, true);
+
+            // Memory: compression state, page file and reads from disk, from two real readings.
+            using (var sampler = new Sampler())
+            {
+                sampler.Sample();
+                await Task.Delay(1500);
+                var mem = sampler.Sample().Memory;
+                lines.Add($"INFO memory: compression {(mem.CompressionOn ? "on" : "off")}, compressed {mem.Compressed:N0}, page file {mem.PageFileUsed:N0} of {mem.PageFileSize:N0}, pages in/s {mem.PagesInPerSec:0.0}");
+                Check("Memory: page file and reads from disk are read", mem.PageFileSize >= 0 && mem.PagesInPerSec >= 0 && mem.Total > 0);
+                var mm = MmAgentCompression();
+                Check("Memory: the compression state matches Windows' own (Get-MMAgent)", mm == null || mm == mem.CompressionOn, $"Apex {mem.CompressionOn}, Windows {mm?.ToString() ?? "unknown"}");
+            }
         }
         catch (Exception e) { Check("no exceptions", false, e.ToString()); }
         finally
@@ -142,6 +209,19 @@ internal static class SelfTest
             File.WriteAllLines(Path.Combine(Path.GetTempPath(), "apex-selftest.txt"), lines);
         }
         return failed ? 1 : 0;
+    }
+
+    /// Windows' own answer (Get-MMAgent, as the self-test runs elevated or not): null when it can't say.
+    static bool? MmAgentCompression()
+    {
+        try
+        {
+            var p = Process.Start(new ProcessStartInfo("powershell.exe", "-NoProfile -Command (Get-MMAgent).MemoryCompression") { RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true })!;
+            var o = p.StandardOutput.ReadToEnd().Trim(); p.WaitForExit(20_000);
+            lines.Add($"INFO Get-MMAgent MemoryCompression: {o}");
+            return o.Equals("True", StringComparison.OrdinalIgnoreCase) ? true : o.Equals("False", StringComparison.OrdinalIgnoreCase) ? false : null;
+        }
+        catch { return null; }
     }
 
     static Windows.Storage.Streams.IRandomAccessStream AsBufferStream(this byte[] bytes)

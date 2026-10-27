@@ -6,7 +6,7 @@
     <Company>CyberNet Labs</Company>
     <Product>Apex Activity Manager</Product>
     <Copyright>© 2026 CyberNet Labs</Copyright>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <!-- Off Windows (development on a Mac in a synced folder): build output goes to the temp folder. -->
     <UseArtifactsOutput Condition="'$(OS)' != 'Windows_NT'">true</UseArtifactsOutput>
     <ArtifactsPath Condition="'$(OS)' != 'Windows_NT'">$(TMPDIR)apex-windows-artifacts</ArtifactsPath>
