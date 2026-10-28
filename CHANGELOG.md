@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.0 (2026-10-28)
+
+- **Lumen AI** in the Assistant: CyberNet Labs' own cloud AI, as on the Mac.
+  Until it opens, the Assistant says it's coming soon and shows the two
+  ways in (Monthly Plan, API Access). Once open: choose one, paste the Lumen
+  key from your CyberNet Labs account; Apex checks it, then keeps it in
+  Windows' Credential Manager. Answers stream in; the Assistant says that
+  your question and the PC's readings go to Lumen. Sign Out removes the key.
+
 ## 1.3.0 (2026-10-28)
 
 - **Memory compression:** the Memory page shows whether it's on and what it

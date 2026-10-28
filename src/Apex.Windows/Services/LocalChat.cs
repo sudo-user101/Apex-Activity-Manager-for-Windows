@@ -37,15 +37,18 @@ internal static class LocalChat
         "(Processes, Performance, Gaming, Startup apps, Users, Services, Free Up Memory). Never call an app malware just because it's busy or unknown.";
 
     /// Streams the answer; `onText` gets each piece as it arrives.
+    /// `key`: for a service that needs one (Lumen AI); local servers don't.
     public static async Task Ask(Server server, string model, IEnumerable<(string Role, string Text)> history, string readings,
-                                 Action<string> onText, CancellationToken cancel)
+                                 Action<string> onText, CancellationToken cancel, string? key = null)
     {
         var messages = new JsonArray { new JsonObject { ["role"] = "system", ["content"] = Instructions + "\n\nThis PC right now:\n" + readings } };
         foreach (var (role, text) in history) messages.Add(new JsonObject { ["role"] = role, ["content"] = text });
         var body = new JsonObject { ["model"] = model, ["messages"] = messages, ["stream"] = true };
         using var req = new HttpRequestMessage(HttpMethod.Post, server.BaseUrl + "/chat/completions")
         { Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json") };
+        if (key != null) req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
         using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cancel);
+        if (key != null && !res.IsSuccessStatusCode) throw new LumenRefused(Apex.Core.Lumen.Problem((int)res.StatusCode));
         res.EnsureSuccessStatusCode();
         using var reader = new StreamReader(await res.Content.ReadAsStreamAsync(cancel));
         while (await reader.ReadLineAsync(cancel) is { } line)
@@ -62,3 +65,6 @@ internal static class LocalChat
         }
     }
 }
+
+/// The Lumen service turned the question down (key, credit, busy): its plain words.
+internal sealed class LumenRefused(string message) : Exception(message);

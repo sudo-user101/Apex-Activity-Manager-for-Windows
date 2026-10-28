@@ -190,6 +190,53 @@ internal static class SelfTest
                   string.Join(", ", names));
             Directory.Delete(shots, true);
 
+            // Lumen AI against a stand-in Lumen server on this PC: a wrong key refused, the right one
+            // checked and kept in Credential Manager, an answer streamed, sign out removes the key.
+            {
+                var lumenServer = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+                lumenServer.Start();
+                int lumenPort = ((System.Net.IPEndPoint)lumenServer.LocalEndpoint).Port;
+                using var stop = new CancellationTokenSource();
+                _ = Task.Run(async () =>
+                {
+                    while (!stop.IsCancellationRequested)
+                    {
+                        System.Net.Sockets.TcpClient c;
+                        try { c = await lumenServer.AcceptTcpClientAsync(stop.Token); } catch { break; }
+                        _ = Task.Run(async () =>
+                        {
+                            using (c)
+                            {
+                                var stream = c.GetStream();
+                                var buf = new byte[65536]; int n = await stream.ReadAsync(buf);
+                                var req = System.Text.Encoding.UTF8.GetString(buf, 0, n);
+                                bool good = req.Contains("Authorization: Bearer good-key", StringComparison.OrdinalIgnoreCase);
+                                string resp;
+                                if (!good) resp = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                                else if (req.StartsWith("GET")) { var b = "{\"data\":[{\"id\":\"lumen\"}]}"; resp = $"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {b.Length}\r\nConnection: close\r\n\r\n{b}"; }
+                                else resp = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n"
+                                          + "data: {\"choices\":[{\"delta\":{\"content\":\"Hello \"}}]}\n\n"
+                                          + "data: {\"choices\":[{\"delta\":{\"content\":\"from Lumen\"}}]}\n\ndata: [DONE]\n\n";
+                                var bytes = System.Text.Encoding.UTF8.GetBytes(resp);
+                                await stream.WriteAsync(bytes);
+                            }
+                        });
+                    }
+                });
+                Environment.SetEnvironmentVariable("APEX_LUMEN_BASE", $"http://127.0.0.1:{lumenPort}/v1");
+                LumenAccount.SignOut();
+                Check("Lumen: a wrong key is refused, in plain words", (await LumenAccount.Connect("bad-key", Lumen.Access.Plan))?.Contains("didn’t accept") == true && !LumenAccount.HasKey);
+                var ok = await LumenAccount.Connect("good-key", Lumen.Access.Api);
+                Check("Lumen: the right key is checked and kept in Credential Manager", ok == null && LumenAccount.Key == "good-key" && LumenAccount.Access == Lumen.Access.Api, ok ?? "");
+                var lumenSaid = new System.Text.StringBuilder();
+                await LocalChat.Ask(new LocalChat.Server("Lumen AI", Lumen.Base!), Lumen.Model, new[] { ("user", "hi") }, "readings", t => lumenSaid.Append(t), CancellationToken.None, LumenAccount.Key);
+                Check("Lumen: an answer streams in", lumenSaid.ToString() == "Hello from Lumen", lumenSaid.ToString());
+                LumenAccount.SignOut();
+                Check("Lumen: sign out removes the key", !LumenAccount.HasKey && LumenAccount.Access == null);
+                Environment.SetEnvironmentVariable("APEX_LUMEN_BASE", null);
+                stop.Cancel(); lumenServer.Stop();
+            }
+
             // Memory: compression state, page file and reads from disk, from two real readings.
             using (var sampler = new Sampler())
             {

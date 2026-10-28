@@ -39,6 +39,7 @@ Shot "storage" @("--page=1", "--maximize", "--dialog=storage")
 Shot "memory" @("--page=1", "--maximize", "--perf=memory")
 Shot "memory-compression" @("--page=1", "--maximize", "--perf=memory", "--dialog=compression")
 Shot "analyze" @("--page=1", "--maximize", "--dialog=analyze")
+Shot "assistant-lumen" @("--page=2", "--maximize", "--assistant=2")
 
 if (Test-Path "$env:TEMP\apex-crash.txt") { Get-Content "$env:TEMP\apex-crash.txt"; exit 1 }
 Write-Host "All pages opened without crashing."

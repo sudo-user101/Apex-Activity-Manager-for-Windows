@@ -44,7 +44,9 @@ fills and gentle animations.
   “why is my PC slow?”, “close everything except my music app”, “steady
   60 FPS in my game”. **Apex Agent** answers with this PC's readings and acts
   only when you press its button; **Local AI** chats with a model running on
-  this PC (LM Studio or Ollama). Nothing leaves the PC.
+  this PC (LM Studio or Ollama), and nothing leaves the PC; **Lumen AI** is
+  CyberNet Labs' own cloud AI (coming soon: a monthly plan or API access,
+  with your key kept in Windows' Credential Manager).
 - **Gaming:** live FPS, 1% low and frame time for every app that's drawing,
   and **Game mode**: other apps quieted, the fastest power plan, the game
   at high priority, and the frame rate watched against your target, with
@@ -94,7 +96,7 @@ fills and gentle animations.
 
 ## Install
 
-1. Download **Apex-Activity-Manager-1.3.0-Setup-x64.exe** from
+1. Download **Apex-Activity-Manager-1.4.0-Setup-x64.exe** from
    [Releases](https://github.com/sudo-user101/Apex-Activity-Manager-for-Windows/releases/latest).
 2. Run it. It installs for you only, without needing administrator rights
    (you can choose all users).

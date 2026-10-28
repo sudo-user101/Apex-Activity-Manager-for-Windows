@@ -149,3 +149,22 @@ public class MemoryTextTests
         Assert.Equal("Enable-MMAgent -MemoryCompression", MemoryText.ToggleCommand(true));
     }
 }
+
+public class LumenTests
+{
+    [Fact] public void NotLiveUntilCyberNetLabsOpensIt()
+    {
+        Environment.SetEnvironmentVariable("APEX_LUMEN_BASE", null);
+        Assert.False(Lumen.IsLive);
+        Environment.SetEnvironmentVariable("APEX_LUMEN_BASE", "http://127.0.0.1:9/v1");
+        Assert.True(Lumen.IsLive);
+        Environment.SetEnvironmentVariable("APEX_LUMEN_BASE", null);
+    }
+    [Fact] public void Words()
+    {
+        Assert.Equal("Monthly Plan", Lumen.Title(Lumen.Access.Plan));
+        Assert.Contains("didn’t accept that key", Lumen.Problem(401));
+        Assert.Contains("run out", Lumen.Problem(402));
+        Assert.Contains("(418)", Lumen.Problem(418));
+    }
+}
