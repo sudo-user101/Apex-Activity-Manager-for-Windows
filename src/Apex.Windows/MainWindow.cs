@@ -28,12 +28,12 @@ public sealed class MainWindow : Window
         VerticalAlignment = VerticalAlignment.Center,
     };
     readonly ContentControl host = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
-    readonly IPage[] pages = { new ProcessesPage(), new PerformancePage(), new AssistantPage(), new GamingPage(), new StartupPage(), new UsersPage(), new ServicesPage() };
+    readonly IPage[] pages = { new ProcessesPage(), new PerformancePage(), new AssistantPage(), new GamingPage(), new HistoryPage(), new StartupPage(), new UsersPage(), new ServicesPage() };
     /// Page keys, for the Assistant's buttons and --page.
-    static readonly string[] Keys = { "processes", "performance", "assistant", "gaming", "startup", "users", "services" };
+    static readonly string[] Keys = { "processes", "performance", "assistant", "gaming", "history", "startup", "users", "services" };
     static readonly (string Name, string Glyph)[] Pages =
     {
-        ("Processes", ""), ("Performance", ""), ("Assistant", "\uE99A"), ("Gaming", "\uE7FC"), ("Startup apps", ""), ("Users", ""), ("Services", ""),
+        ("Processes", ""), ("Performance", ""), ("Assistant", "\uE99A"), ("Gaming", "\uE7FC"), ("App history", "\uE81C"), ("Startup apps", ""), ("Users", ""), ("Services", ""),
     };
     readonly ColumnDefinition rightInset = new() { Width = new GridLength(140) };
     readonly Sampler sampler = new();
@@ -113,12 +113,20 @@ public sealed class MainWindow : Window
         sampler.Updated += s => Ui(() =>
         {
             AppState.Record(s);
+            History.Tick(s);
             Efficiency.Keep(s.Processes);
             GameMode.Tick(s);
             if (AppWindow.IsVisible) pages[page].Update(s);
             trayPanel?.Update(s);
             tray?.SetTip($"Apex · CPU {Fmt.Percent(s.Cpu.Total)} · Memory {Fmt.Percent(s.Memory.Percent)}");
         });
+        sampler.Interval = TimeSpan.FromSeconds(Settings.Get("updateSeconds", 1.0));
+        if (Settings.Get("alwaysOnTop", false) && AppWindow.Presenter is OverlappedPresenter op) op.IsAlwaysOnTop = true;
+        var startArgs = Environment.GetCommandLineArgs();
+        if (startArgs.Any(a => a.StartsWith("--settings="))) DispatcherQueue.TryEnqueue(() => SettingsWindow.Show());
+        // Started at sign-in: straight to the notification area.
+        if (startArgs.Contains("--background") && Settings.Get("keepInTray", true)) DispatcherQueue.TryEnqueue(() => AppWindow.Hide());
+        History.Load();
         Efficiency.Start();
         ClipboardHistory.Shared.Start();
         StartTray();
@@ -133,7 +141,7 @@ public sealed class MainWindow : Window
             e.Cancel = true;
             AppWindow.Hide();
         };
-        Closed += (_, _) => { sampler.Dispose(); tray?.Dispose(); };
+        Closed += (_, _) => { History.Save(); sampler.Dispose(); tray?.Dispose(); };
     }
 
     void StartTray()
@@ -143,6 +151,7 @@ public sealed class MainWindow : Window
         var trayArg = args.FirstOrDefault(a => a.StartsWith("--tray="));
         if (trayArg != null && int.TryParse(trayArg[7..], out int t)) Settings.Set("trayTab", t);
         tray = new Tray();
+        History.Notify = (title, text, warning) => tray?.Notify(title, text, warning);
         trayPanel = new TrayPanel();
         trayPanel.OpenApp += ShowWindow;
         tray.Clicked += () => trayPanel.Toggle();
@@ -165,7 +174,7 @@ public sealed class MainWindow : Window
     {
         var lines = new List<string>();
         await Task.Delay(6000);                                     // a few real readings first
-        foreach (var i in new[] { 0, 1, 5, 6 })
+        foreach (var i in new[] { 0, 1, 7, 8 })
         {
             tabs.Select(i, notify: false); Show(i);
             await Task.Delay(2500);                                 // its lists loaded
@@ -195,6 +204,7 @@ public sealed class MainWindow : Window
     void Quit()
     {
         quitting = true;
+        History.Save();
         StayAwake.Stop();
         GameMode.Stop();
         FrameMonitor.StopAll();
@@ -241,37 +251,56 @@ public sealed class MainWindow : Window
     MenuFlyout Menu()
     {
         var m = new MenuFlyout();
+        var settingsItem = new MenuFlyoutItem { Text = "Settings…", Icon = new FontIcon { Glyph = "\uE713" } };
+        settingsItem.Click += (_, _) => SettingsWindow.Show();
+        m.Items.Add(settingsItem);
+        m.Items.Add(new MenuFlyoutSeparator());
         var speed = new MenuFlyoutSubItem { Text = "Update speed", Icon = new FontIcon { Glyph = "" } };
         foreach (var (label, secs) in new[] { ("High (½ second)", 0.5), ("Normal (1 second)", 1.0), ("Low (4 seconds)", 4.0) })
         {
-            var item = new RadioMenuFlyoutItem { Text = label, GroupName = "speed", IsChecked = secs == 1.0 };
-            item.Click += (_, _) => sampler.Interval = TimeSpan.FromSeconds(secs);
+            var item = new RadioMenuFlyoutItem { Text = label, GroupName = "speed", IsChecked = secs == Settings.Get("updateSeconds", 1.0) };
+            item.Click += (_, _) => SetUpdateSeconds(secs);
             speed.Items.Add(item);
         }
         m.Items.Add(speed);
         var keep = new ToggleMenuFlyoutItem { Text = "Keep running in the notification area", IsChecked = Settings.Get("keepInTray", true) };
         keep.Click += (_, _) => Settings.Set("keepInTray", keep.IsChecked);
         m.Items.Add(keep);
-        var top = new ToggleMenuFlyoutItem { Text = "Always on top", Icon = new FontIcon { Glyph = "" } };
-        top.Click += (_, _) => { if (AppWindow.Presenter is OverlappedPresenter p) p.IsAlwaysOnTop = top.IsChecked; };
+        var top = new ToggleMenuFlyoutItem { Text = "Always on top", Icon = new FontIcon { Glyph = "" }, IsChecked = Settings.Get("alwaysOnTop", false) };
+        top.Click += (_, _) => SetAlwaysOnTop(top.IsChecked);
         m.Items.Add(top);
         m.Items.Add(new MenuFlyoutSeparator());
         var admin = new MenuFlyoutItem { Text = "Restart as administrator", Icon = new FontIcon { Glyph = "" } };
-        admin.Click += (_, _) =>
-        {
-            try
-            {
-                Process.Start(new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = true, Verb = "runas" });
-                Application.Current.Exit();
-            }
-            catch { }
-        };
+        admin.Click += (_, _) => RestartAsAdmin();
         m.Items.Add(admin);
         var about = new MenuFlyoutItem { Text = "About Apex", Icon = new FontIcon { Glyph = "" } };
         about.Click += (_, _) => _ = ShowMessage("Apex Activity Manager",
             $"Version {typeof(MainWindow).Assembly.GetName().Version?.ToString(3)}\nBy CyberNet Labs · designed and built by sudo-user\n\nSee what your PC is doing, in plain words.");
         m.Items.Add(about);
         return m;
+    }
+
+    /// Settings › General (and the ⋯ menu): applied and remembered.
+    public static void SetUpdateSeconds(double secs)
+    {
+        Settings.Set("updateSeconds", secs);
+        if (current != null) current.sampler.Interval = TimeSpan.FromSeconds(secs);
+    }
+
+    public static void SetAlwaysOnTop(bool on)
+    {
+        Settings.Set("alwaysOnTop", on);
+        if (current?.AppWindow.Presenter is OverlappedPresenter p) p.IsAlwaysOnTop = on;
+    }
+
+    public static void RestartAsAdmin()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = true, Verb = "runas" });
+            Application.Current.Exit();
+        }
+        catch { }       // the user said no
     }
 
     /// Opens a page by key ("gaming", "processes"…), bringing the window forward.

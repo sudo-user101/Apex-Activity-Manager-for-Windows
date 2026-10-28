@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.5.0 (2026-10-28)
+
+- **Settings window:** General (update speed, start at sign-in, keep in the
+  notification area, always on top), Utilities (clipboard history, Stay
+  Awake), Windows Tweaks, Alerts, History, Privacy, Permissions. One size:
+  switching sections never resizes it. Open it from ⋯ › Settings.
+- **Windows Tweaks:** 20 hidden or buried Windows settings as switches, for
+  you only (no administrator): File Explorer, Taskbar, Start & search,
+  Windows, Mouse, Privacy, Gaming. Turning one off puts back exactly what you
+  had; Undo All puts everything back.
+- **App history:** what each app used (CPU time, disk, peak memory) today, or
+  over 7 or 30 days, kept on this PC for 30 days. **Events:** alerts and
+  spikes, each with why it fired and the numbers: an app keeping the CPU busy,
+  memory running short or growing steadily (a likely leak), the page file
+  growing fast, the disk almost full or filling fast, heavy disk writing or
+  network traffic. Alerts arrive as Windows notifications; short spikes are
+  only recorded.
+
 ## 1.4.1 (2026-10-28)
 
 - **Smoother.** The process list only makes the rows you can see and

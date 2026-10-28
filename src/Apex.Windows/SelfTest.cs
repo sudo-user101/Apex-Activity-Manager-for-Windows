@@ -243,12 +243,30 @@ internal static class SelfTest
                 stop.Cancel(); lumenServer.Stop();
             }
 
+            // Windows Tweaks: on writes the value, off puts back exactly what was there (here: nothing).
+            {
+                var t = WindowsTweaks.All.First(x => x.Id == "seconds");
+                var before = Tweaks.Read(t.Values[0]);
+                Check("Tweak: on", Tweaks.Set(t, true) == null && Tweaks.IsOn(t) && Tweaks.Read(t.Values[0]) == "1");
+                Check("Tweak: off puts back what was there", Tweaks.Set(t, false) == null && Tweaks.Read(t.Values[0]) == before && !Tweaks.IsOn(t),
+                      $"before {before ?? "absent"}, after {Tweaks.Read(t.Values[0]) ?? "absent"}");
+            }
+
             // Memory: compression state, page file and reads from disk, from two real readings.
             using (var sampler = new Sampler())
             {
                 sampler.Sample();
                 await Task.Delay(1500);
-                var mem = sampler.Sample().Memory;
+                var snap2 = sampler.Sample();
+                var mem = snap2.Memory;
+                // App History from real readings: two samples make usage, grouped by app.
+                var hist = new AppHistory();
+                int logical = Math.Max(1, snap2.Cpu.LogicalProcessors);
+                foreach (var at in new[] { snap2.Time, snap2.Time.AddSeconds(2) })
+                    hist.Record(at, snap2.Processes.GroupBy(p => AppHistory.KeyFor(p.Path, p.Name))
+                        .Select(g => new AppHistory.Use(g.Key, g.First().Name, g.First().Path, g.Sum(p => p.Cpu) / 100 * logical + 0.01, g.Sum(p => p.DiskPerSec), 0, g.Sum(p => p.Memory))));
+                var totals = hist.Totals(1, snap2.Time);
+                Check("App history records real apps", totals.Count > 5 && totals.Count < snap2.Processes.Count, $"{totals.Count} apps from {snap2.Processes.Count} processes");
                 lines.Add($"INFO memory: compression {(mem.CompressionOn ? "on" : "off")}, compressed {mem.Compressed:N0}, page file {mem.PageFileUsed:N0} of {mem.PageFileSize:N0}, pages in/s {mem.PagesInPerSec:0.0}");
                 Check("Memory: page file and reads from disk are read", mem.PageFileSize >= 0 && mem.PagesInPerSec >= 0 && mem.Total > 0);
                 var mm = MmAgentCompression();

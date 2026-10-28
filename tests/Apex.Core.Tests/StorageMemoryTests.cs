@@ -186,3 +186,140 @@ public class LumenTests
         Assert.Contains("(418)", Lumen.Problem(418));
     }
 }
+
+public class WindowsTweaksTests
+{
+    [Fact] public void EveryTweakIsInAKnownGroupAndHasAUniqueId()
+    {
+        Assert.Equal(WindowsTweaks.All.Length, WindowsTweaks.All.Select(t => t.Id).Distinct().Count());
+        Assert.All(WindowsTweaks.All, t => Assert.Contains(t.Group, WindowsTweaks.Groups));
+        Assert.All(WindowsTweaks.All, t => Assert.DoesNotContain(t.Values, v => v.Key.StartsWith("HKEY", StringComparison.OrdinalIgnoreCase)));   // under HKCU only
+    }
+
+    [Fact] public void OnOnlyWhenEveryValueMatches()
+    {
+        var accel = WindowsTweaks.All.First(t => t.Id == "noaccel");
+        var reg = new Dictionary<string, string?> { ["MouseSpeed"] = "0", ["MouseThreshold1"] = "0", ["MouseThreshold2"] = "6" };
+        Assert.False(WindowsTweaks.IsOn(accel, v => reg.GetValueOrDefault(v.Name)));
+        reg["MouseThreshold2"] = "0";
+        Assert.True(WindowsTweaks.IsOn(accel, v => reg.GetValueOrDefault(v.Name)));
+    }
+
+    [Fact] public void TurningOffPutsBackWhatWasThere()
+    {
+        var v = WindowsTweaks.All.First(t => t.Id == "ext").Values[0];
+        Assert.Null(WindowsTweaks.Previous(v, null));
+        Assert.Equal("1", WindowsTweaks.Previous(v, new Dictionary<string, string?> { [WindowsTweaks.Id(v)] = "1" }));
+        Assert.Null(WindowsTweaks.Previous(v, new Dictionary<string, string?> { [WindowsTweaks.Id(v)] = null }));
+    }
+}
+
+public class DetectionTests
+{
+    static readonly DateTime T0 = new(2026, 10, 28, 12, 0, 0);
+    static DetectionSample S(int seconds, double cpu = 0, PressureLevel p = PressureLevel.Normal, long free = 100_000_000_000, long pageFile = 0, long mem = 0) => new()
+    {
+        Date = T0.AddSeconds(seconds), Pressure = p, DiskAvailable = free, DiskCapacity = 500_000_000_000, PageFileUsed = pageFile,
+        Apps = new[] { new AppLoad("app:chrome", "Chrome", cpu, Memory: mem, Pids: new[] { 42 }) },
+    };
+
+    [Fact] public void AppCpuAlertsAfterThreeMinutesOnce()
+    {
+        var e = new DetectionEngine();
+        var fired = new List<DetectionEvent>();
+        for (int t = 0; t <= 200; t += 2) fired.AddRange(e.Evaluate(S(t, cpu: 95)));
+        var alert = Assert.Single(fired);
+        Assert.Equal(Rule.AppCpu, alert.Rule);
+        Assert.True(alert.Notify);
+        Assert.Equal("Chrome is using a lot of CPU", alert.Title);
+        Assert.Contains(alert.Evidence, x => x.Label == "Lasted");
+    }
+
+    [Fact] public void AShortBurnIsASpikeNeverNotified()
+    {
+        var e = new DetectionEngine();
+        var all = new List<DetectionEvent>();
+        for (int t = 0; t <= 60; t += 2) all.AddRange(e.Evaluate(S(t, cpu: 95)));
+        for (int t = 62; t <= 100; t += 2) all.AddRange(e.Evaluate(S(t, cpu: 5)));
+        var spike = Assert.Single(all);
+        Assert.Equal(EventKind.Spike, spike.Kind);
+        Assert.False(spike.Notify);
+    }
+
+    [Fact] public void BriefDipsDontBreakTheEpisode()
+    {
+        var e = new DetectionEngine();
+        var all = new List<DetectionEvent>();
+        for (int t = 0; t <= 200; t += 2) all.AddRange(e.Evaluate(S(t, cpu: t == 100 ? 10 : 95)));
+        Assert.Contains(all, x => x.Kind == EventKind.Sustained && x.Rule == Rule.AppCpu);
+    }
+
+    [Fact] public void CriticalMemoryAfterThirtySeconds()
+    {
+        var e = new DetectionEngine();
+        var all = new List<DetectionEvent>();
+        for (int t = 0; t <= 40; t += 2) all.AddRange(e.Evaluate(S(t, p: PressureLevel.Critical)));
+        var m = Assert.Single(all, x => x.Key == "memory:critical");
+        Assert.Equal(Severity.Critical, m.Severity);
+        Assert.Equal("Your PC is running out of memory", m.Title);
+    }
+
+    [Fact] public void LowDiskOncePerDay()
+    {
+        var e = new DetectionEngine();
+        Assert.Single(e.Evaluate(S(0, free: 5_000_000_000)), x => x.Key == "disk:low");
+        Assert.DoesNotContain(e.Evaluate(S(60, free: 5_000_000_000)), x => x.Key == "disk:low");
+    }
+
+    [Fact] public void SteadyGrowthIsFoundButASawtoothIsNot()
+    {
+        var steady = Enumerable.Range(0, 40).Select(i => (T0.AddMinutes(i), 400_000_000d + i * 30_000_000d)).ToList();
+        Assert.NotNull(DetectionEngine.GrowthOf(steady));
+        var saw = Enumerable.Range(0, 40).Select(i => (T0.AddMinutes(i), 400_000_000d + (i % 5) * 300_000_000d)).ToList();
+        Assert.Null(DetectionEngine.GrowthOf(saw));
+    }
+}
+
+public class AppHistoryTests
+{
+    static readonly DateTime T = new(2026, 10, 28, 10, 0, 0);
+
+    [Fact] public void CountsCoreSecondsAndHelpersTogether()
+    {
+        var h = new AppHistory();
+        var key = AppHistory.KeyFor(@"C:\Apps\Edge\msedge.exe", "msedge");
+        for (int i = 0; i <= 10; i++)
+            h.Record(T.AddSeconds(i), new[]
+            {
+                new AppHistory.Use(key, "Microsoft Edge", @"C:\Apps\Edge\msedge.exe", 0.5, 1000, 0, 100_000_000),
+                new AppHistory.Use(key, "Microsoft Edge", @"C:\Apps\Edge\msedge.exe", 0.5, 0, 0, 50_000_000),     // a helper
+            });
+        var (k, u) = Assert.Single(h.Totals(1, T.AddSeconds(10)));
+        Assert.Equal(key, k);
+        Assert.Equal(10, u.CpuSeconds, 3);              // 1 core for 10 s
+        Assert.Equal(10_000, u.DiskBytes, 3);
+        Assert.Equal(150_000_000, u.PeakMemory);
+    }
+
+    [Fact] public void GapsAreNotCountedAndOldDaysGo()
+    {
+        var h = new AppHistory();
+        var use = new[] { new AppHistory.Use("k", "A", "", 1, 0, 0, 1) };
+        h.Record(T, use); h.Record(T.AddMinutes(10), use);          // a sleep gap
+        Assert.Empty(h.Totals(1, T.AddMinutes(10)));
+        h.Record(T.AddMinutes(10).AddSeconds(2), use);
+        Assert.Equal(2, h.Totals(1, T.AddMinutes(11)).Single().Usage.CpuSeconds, 3);
+        h.Prune(T.AddDays(40));
+        Assert.Empty(h.Days);
+    }
+
+    [Fact] public void RoundTripsAsJson()
+    {
+        var h = new AppHistory();
+        var use = new[] { new AppHistory.Use("k", "A", "", 1, 0, 0, 1) };
+        h.Record(T, use); h.Record(T.AddSeconds(5), use);
+        var back = AppHistory.FromJson(h.ToJson());
+        Assert.Equal(5, back.Totals(1, T).Single().Usage.CpuSeconds, 3);
+        Assert.Empty(AppHistory.FromJson("not json").Days);
+    }
+}

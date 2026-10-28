@@ -58,6 +58,12 @@ fills and gentle animations.
   online-only files marked (nothing downloads). **Compress in place** makes
   a folder's screenshots and scans smaller, keeping their names, with the
   originals in the Recycle Bin.
+- **App history:** what each app used today or over 7 or 30 days, and
+  **Events**: alerts and spikes with why each fired; alerts arrive as
+  Windows notifications.
+- **Settings**, with **Windows Tweaks**: hidden Windows settings as
+  switches (File Explorer, taskbar, Start, mouse, privacy, gaming), each one
+  put back exactly as it was when turned off.
 - **Network:** connections by app, ports in use with **Free Port**, your
   public IP (hidden until you click), an internet **speed test**, and
   **Network Doctor**, which checks each step from your PC to the internet
@@ -96,7 +102,7 @@ fills and gentle animations.
 
 ## Install
 
-1. Download **Apex-Activity-Manager-1.4.1-Setup-x64.exe** from
+1. Download **Apex-Activity-Manager-1.5.0-Setup-x64.exe** from
    [Releases](https://github.com/sudo-user101/Apex-Activity-Manager-for-Windows/releases/latest).
 2. Run it. It installs for you only, without needing administrator rights
    (you can choose all users).

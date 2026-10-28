@@ -62,6 +62,16 @@ internal sealed class Tray : IDisposable
         Shell_NotifyIcon(NIM_SETVERSION, ref d);      // version 4: clicks arrive as NIN_SELECT / WM_CONTEXTMENU
     }
 
+    /// A Windows notification from the tray icon (Apex's alerts).
+    public void Notify(string title, string text, bool warning)
+    {
+        var d = Data(0x10 /* NIF_INFO */);
+        d.szInfoTitle = title.Length > 63 ? title[..63] : title;
+        d.szInfo = text.Length > 255 ? text[..252] + "…" : text;
+        d.dwInfoFlags = warning ? 2u /* NIIF_WARNING */ : 1u /* NIIF_INFO */;
+        Shell_NotifyIcon(NIM_MODIFY, ref d);
+    }
+
     /// The hover text (at most 127 characters).
     public void SetTip(string text)
     {
