@@ -159,6 +159,7 @@ internal static class StorageView
         root.Children.Add(status);
 
         CancellationTokenSource? scan = null;
+        var pending = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         DiskTree? tree = null;
         string? showing = null;
 
@@ -197,7 +198,10 @@ internal static class StorageView
             var items = DiskTree.Contents(node).Take(80).ToList();
             long biggest = Math.Max(1, items.Select(i => i.Size).DefaultIfEmpty(1).Max());
             foreach (var i in items) list.Children.Add(Row(i.Path, i.Size, i.OnlineOnly, i.IsFolder, biggest, Show, Removed, false));
-            status.Text = $"{Fmt.Bytes(node.Size)} in {node.Name}" + (node.OnlineOnly > 0 ? $" ({Fmt.Bytes(node.OnlineOnly)} online-only, not on this PC)" : "")
+            // Folders still being measured (the drive's top level, while a scan runs).
+            if (node == tree.Top) foreach (var d in pending.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)) list.Children.Add(PendingRow(d));
+            status.Text = (pending.Count > 0 ? $"Measuring {pending.Count} more folder{(pending.Count == 1 ? "" : "s")}… " : "")
+                + $"{Fmt.Bytes(node.Size)} in {node.Name}" + (node.OnlineOnly > 0 ? $" ({Fmt.Bytes(node.OnlineOnly)} online-only, not on this PC)" : "")
                 + ". Double-click a folder to look inside. " + Summary(tree);
         }
 
@@ -232,29 +236,63 @@ internal static class StorageView
             catch { return ""; }
         }
 
+        // Shown as it's measured, like the Mac: the top level at once, each of its
+        // folders (three at a time) filled in as soon as it's done, biggest first.
         void Start(bool fresh)
         {
             if (where.SelectedIndex < 0) return;
             var path = places[where.SelectedIndex].Path;
             scan?.Cancel();
-            if (!fresh && scans.TryGetValue(path, out var cached)) { tree = cached.Tree; Show(path); scanButton.Content = "Scan Again"; return; }
+            if (!fresh && scans.TryGetValue(path, out var cached)) { tree = cached.Tree; pending.Clear(); Show(path); scanButton.Content = "Scan Again"; return; }
             var cts = scan = new CancellationTokenSource();
-            list.Children.Clear(); crumbs.Children.Clear();
+            var t = tree = new DiskTree(path);
+            pending.Clear();
             progress.IsActive = true;
             scanButton.Content = "Stop";
+            Show(path);
             status.Text = "Measuring… nothing is downloaded or changed.";
-            _ = Task.Run(() =>
+            DateTime lastShown = DateTime.MinValue;
+            void ShowSoon() { if (DateTime.UtcNow - lastShown > TimeSpan.FromMilliseconds(250) && showing != null) { lastShown = DateTime.UtcNow; Show(showing); } }
+            _ = Task.Run(async () =>
             {
-                var t = DiskTree.Scan(path, cts.Token, n => MainWindow.Ui(() => { if (scan == cts) status.Text = $"Measuring… {n:N0} files so far. Nothing is downloaded or changed."; }));
+                var dirs = new List<string>();
+                var files = new List<DiskTree.FileEntry>();
+                try
+                {
+                    foreach (var fi in new DirectoryInfo(path).EnumerateFileSystemInfos())
+                    {
+                        if (fi is DirectoryInfo di) { if (di.LinkTarget == null) dirs.Add(di.FullName); }
+                        else if (fi is FileInfo f) files.Add(new DiskTree.FileEntry(f.FullName, f.Length, DiskTree.IsOnlineOnly((int)f.Attributes)));
+                    }
+                }
+                catch { }
+                MainWindow.Ui(() =>
+                {
+                    if (scan != cts) return;
+                    foreach (var f in files) t.AddRootFile(f);
+                    foreach (var d in dirs) pending.Add(d);
+                    Show(path);
+                });
+                using var gate = new SemaphoreSlim(3);
+                await Task.WhenAll(dirs.Select(async d =>
+                {
+                    try { await gate.WaitAsync(cts.Token); } catch (OperationCanceledException) { return; }
+                    try
+                    {
+                        var sub = DiskTree.Scan(d, cts.Token);
+                        MainWindow.Ui(() => { if (scan != cts) return; t.Graft(sub); pending.Remove(d); ShowSoon(); });
+                    }
+                    finally { gate.Release(); }
+                }));
                 MainWindow.Ui(() =>
                 {
                     if (scan != cts) return;      // another place was chosen meanwhile: this walk is dropped
-                    scans[path] = (t, DateTime.Now);
-                    tree = t;
+                    pending.Clear();
+                    if (!cts.IsCancellationRequested) scans[path] = (t, DateTime.Now);     // a stopped scan isn't kept as if complete
                     progress.IsActive = false;
                     scanButton.Content = "Scan Again";
                     scan = null;
-                    Show(path);
+                    if (showing != null) Show(showing);
                 });
             });
         }
@@ -269,6 +307,23 @@ internal static class StorageView
         largestView.Checked += (_, _) => { if (tree != null) Show(showing ?? tree.Root); };
         where.SelectedIndex = 0;
         return root;
+    }
+
+    /// A folder at the top level that's still being measured.
+    static UIElement PendingRow(string path)
+    {
+        var g = new Grid { ColumnSpacing = 10, Padding = new Thickness(4) };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+        var name = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        name.Children.Add(Theme.Icon("\uE8B7", 14));
+        name.Children.Add(Theme.Text(Path.GetFileName(path.TrimEnd('\\')), 14, Theme.Secondary));
+        g.Children.Add(name);
+        var m = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        m.Children.Add(new ProgressRing { IsActive = true, Width = 12, Height = 12 });
+        m.Children.Add(Theme.Text("Measuring…", 12, Theme.Secondary));
+        Grid.SetColumn(m, 1); g.Children.Add(m);
+        return g;
     }
 
     static UIElement Row(string path, long size, long onlineOnly, bool folder, long max, Action<string> open, Action<string> removed, bool showFolder)

@@ -13,7 +13,8 @@ internal abstract class ListPage : IPage
     public UIElement View => root;
     readonly Grid root = new() { Padding = new Thickness(28, 16, 28, 16), RowSpacing = 14 };
     protected readonly TextBlock Subtitle = Theme.Text("", 14, Theme.Secondary);
-    protected readonly StackPanel Rows = new() { Spacing = 0 };
+    /// Rows are built only when they scroll into view (a virtualized list).
+    protected readonly LazyRows Rows = new();
     protected readonly TextBox Search = new() { PlaceholderText = "Search", Width = 260, CornerRadius = new CornerRadius(8) };
     protected readonly StackPanel Actions = new() { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
 
@@ -30,7 +31,7 @@ internal abstract class ListPage : IPage
         if (searchable) { Actions.Children.Add(Search); Search.TextChanged += (_, _) => Fill(); }
         Grid.SetColumn(Actions, 1); header.Children.Add(Actions);
         root.Children.Add(header);
-        var card = Theme.Card(new ScrollViewer { Content = Rows }, 0);
+        var card = Theme.Card(new ScrollViewer { Content = Rows.View }, 0);
         Grid.SetRow(card, 1); root.Children.Add(card);
     }
 
@@ -84,7 +85,7 @@ internal sealed class StartupPage : ListPage
     protected override void Fill()
     {
         Subtitle.Text = $"{items.Count(i => i.Enabled)} of {items.Count} start when you sign in. Turning one off doesn’t uninstall it.";
-        Rows.Children.Clear();
+        Rows.Clear();
         var q = Search.Text.Trim();
         foreach (var e in items.Where(i => q.Length == 0 || i.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || i.Publisher.Contains(q, StringComparison.OrdinalIgnoreCase)))
         {
@@ -97,7 +98,7 @@ internal sealed class StartupPage : ListPage
                 if (!ok) { toggle.IsOn = !want; await MainWindow.ShowMessage("Couldn’t change it", "This one is for all users, so Windows needs administrator permission."); }
                 else items = items.Select(i => i == entry ? i with { Enabled = want } : i).ToList();
             };
-            Rows.Children.Add(Row(AppIcon(e.Path), e.Name, (e.Publisher.Length > 0 ? e.Publisher + " · " : "") + e.Command,
+            Rows.Add(() => Row(AppIcon(e.Path), e.Name, (e.Publisher.Length > 0 ? e.Publisher + " · " : "") + e.Command,
                 Theme.Pill(e.Source, Theme.Cpu), toggle));
         }
     }
@@ -125,7 +126,7 @@ internal sealed class ServicesPage : ListPage
     protected override void Fill()
     {
         Subtitle.Text = $"{items.Count(i => i.Status == "Running")} running · {items.Count} in all";
-        Rows.Children.Clear();
+        Rows.Clear();
         var q = Search.Text.Trim();
         var f = filter.SelectedItem as string ?? "All";
         foreach (var s in items.Where(i => (f == "All" || i.Status == f)
@@ -148,7 +149,7 @@ internal sealed class ServicesPage : ListPage
             }
             more.Flyout = menu;
             var start = Theme.Text(s.StartType, 12, Theme.Secondary); start.Width = 80;
-            Rows.Children.Add(Row(Theme.Icon("", 18), s.DisplayName, s.Name, start, Theme.Pill(s.Status, color), more));
+            Rows.Add(() => Row(Theme.Icon("", 18), s.DisplayName, s.Name, start, Theme.Pill(s.Status, color), more));
         }
     }
 }
@@ -167,15 +168,34 @@ internal sealed class UsersPage : ListPage
     protected override void Fill()
     {
         Subtitle.Text = $"{sessions.Count} signed in";
-        Rows.Children.Clear();
+        Rows.Clear();
         var procs = AppState.Latest.Processes;
         foreach (var u in sessions)
         {
             var mine = procs.Where(p => p.User == u.Id.ToString()).ToList();
             var cpu = Theme.Text(Fmt.Percent(mine.Sum(p => p.Cpu)) + " CPU", 13, Theme.Secondary); cpu.Width = 90;
             var mem = Theme.Text(Fmt.Memory(mine.Sum(p => p.Memory)), 13, Theme.Secondary); mem.Width = 90;
-            Rows.Children.Add(Row(Theme.Icon("", 22), u.User, $"Session {u.Id} · {mine.Count} processes",
+            Rows.Add(() => Row(Theme.Icon("", 22), u.User, $"Session {u.Id} · {mine.Count} processes",
                 cpu, mem, Theme.Pill(u.State, u.State == "Active" ? Theme.Green : Theme.Yellow)));
         }
+    }
+}
+
+/// A list whose rows are made only when they scroll into view, then kept:
+/// a long list (services, startup apps) costs only what's on screen.
+internal sealed class LazyRows
+{
+    public readonly ItemsRepeater View = new() { Layout = new StackLayout() };
+    readonly System.Collections.ObjectModel.ObservableCollection<Lazy<UIElement>> items = new();
+
+    public LazyRows() { View.ItemsSource = items; View.ItemTemplate = new Factory(); }
+    public void Clear() => items.Clear();
+    public void Add(Func<UIElement> make) => items.Add(new Lazy<UIElement>(make));
+    public int Count => items.Count;
+
+    sealed class Factory : IElementFactory
+    {
+        public UIElement GetElement(ElementFactoryGetArgs args) => ((Lazy<UIElement>)args.Data).Value;
+        public void RecycleElement(ElementFactoryRecycleArgs args) { }      // kept with its item
     }
 }

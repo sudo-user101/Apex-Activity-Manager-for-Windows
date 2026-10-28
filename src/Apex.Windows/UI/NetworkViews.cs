@@ -44,6 +44,8 @@ internal sealed class NetworkPanels
         View.Children.Add(Theme.Card(p));
     }
 
+    readonly HashSet<int> openApps = new();
+
     /// Every 2 s while the page is on screen (and not paused).
     public void Refresh(bool force = false)
     {
@@ -60,7 +62,12 @@ internal sealed class NetworkPanels
             traffic.Children.Clear();
             foreach (var g in open.GroupBy(c => c.Pid).OrderByDescending(g => g.Count()).Take(25))
             {
-                var exp = new Expander { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+                // An app you opened stays open across refreshes.
+                var pid = g.Key;
+                var exp = new Expander { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                                         IsExpanded = openApps.Contains(pid) };
+                exp.Expanding += (_, _) => openApps.Add(pid);
+                exp.Collapsed += (_, _) => openApps.Remove(pid);
                 exp.Header = $"{Name(g.Key)}  ·  {g.Count()} connection{(g.Count() == 1 ? "" : "s")}";
                 var inner = new StackPanel { Spacing = 2 };
                 foreach (var c in g.OrderBy(c => c.Remote).Take(30))

@@ -166,6 +166,12 @@ internal static class SelfTest
                 rc.StandardOutput.ReadToEnd(); rc.WaitForExit();
                 lines.Add($"INFO robocopy list of {sysRoot}: {sw.Elapsed.TotalSeconds:0.0} s");
             }
+            // Analyze shows each top folder as it's measured: how soon the first one is there.
+            sw.Restart();
+            {
+                var firstDir = new DirectoryInfo(sysRoot).EnumerateDirectories().Where(d => d.LinkTarget == null).OrderBy(d => d.Name).Select(d => d.FullName).FirstOrDefault();
+                if (firstDir != null) { var one = DiskTree.Scan(firstDir); lines.Add($"INFO Analyze: first folder ({Path.GetFileName(firstDir)}) shown after {sw.Elapsed.TotalSeconds:0.0} s, {one.FileCount:N0} files"); }
+            }
             sw.Restart();
             var driveTree = DiskTree.Scan(sysRoot);
             lines.Add($"INFO Analyze of {sysRoot}: {driveTree.FileCount:N0} files, {driveTree.Top.Size:N0} bytes, {driveTree.Unreadable} unreadable, {sw.Elapsed.TotalSeconds:0.0} s; drive used {new DriveInfo(sysRoot).TotalSize - new DriveInfo(sysRoot).TotalFreeSpace:N0}");

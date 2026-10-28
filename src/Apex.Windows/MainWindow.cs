@@ -123,6 +123,8 @@ public sealed class MainWindow : Window
         ClipboardHistory.Shared.Start();
         StartTray();
         sampler.Start();
+        // --perftest: time each heavy page's update (with its layout) on real readings, then quit (the build's measurements).
+        if (Environment.GetCommandLineArgs().Contains("--perftest")) _ = PerfTest();
         // Closing the window keeps Apex in the notification area (like the Mac app in the menu bar),
         // unless that's switched off; Quit is in the tray icon's menu.
         AppWindow.Closing += (_, e) =>
@@ -157,6 +159,30 @@ public sealed class MainWindow : Window
         // After a few readings, so it shows this PC's real figures.
         if (args.Contains("--dialog=compression") && Content is FrameworkElement root4)
             root4.Loaded += async (_, _) => { await Task.Delay(4000); _ = MemoryCompression.Show(root4, AppState.Latest.Memory); };
+    }
+
+    async Task PerfTest()
+    {
+        var lines = new List<string>();
+        await Task.Delay(6000);                                     // a few real readings first
+        foreach (var i in new[] { 0, 1, 5, 6 })
+        {
+            tabs.Select(i, notify: false); Show(i);
+            await Task.Delay(2500);                                 // its lists loaded
+            var times = new List<double>();
+            for (int n = 0; n < 40; n++)
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                pages[i].Update(AppState.Latest);
+                (Content as FrameworkElement)?.UpdateLayout();
+                times.Add(sw.Elapsed.TotalMilliseconds);
+                await Task.Delay(30);
+            }
+            times.Sort();
+            lines.Add($"PERF {Keys[i]}: average {times.Average():0.0} ms, median {times[times.Count / 2]:0.0} ms, worst {times[^1]:0.0} ms per update (with layout), {AppState.Latest.Processes.Count} processes");
+        }
+        File.WriteAllLines(Path.Combine(Path.GetTempPath(), "apex-perftest.txt"), lines);
+        Environment.Exit(0);
     }
 
     void ShowWindow()

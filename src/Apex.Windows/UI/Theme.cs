@@ -92,12 +92,18 @@ internal static class Theme
     };
 
     /// Heat shading for the Processes table's numbers (Windows-style), 0…5.
+    static readonly Brush?[] heatDark = new Brush?[6], heatLight = new Brush?[6];
+
+    /// The heat shading for a level, made once and shared (not a new brush per cell per update).
     public static Brush? HeatBrush(int level, bool dark)
     {
         if (level <= 0) return null;
+        level = Math.Clamp(level, 1, 5);
+        var cache = dark ? heatDark : heatLight;
+        if (cache[level] is { } b) return b;
         double[] alpha = { 0, 0.10, 0.18, 0.28, 0.40, 0.55 };
         var c = dark ? Color.FromArgb(255, 255, 179, 64) : Color.FromArgb(255, 255, 196, 0);
-        return Solid(c, alpha[Math.Clamp(level, 0, 5)]);
+        return cache[level] = Solid(c, alpha[level]);
     }
 
     public static bool IsDark(FrameworkElement e) => e.ActualTheme == ElementTheme.Dark;

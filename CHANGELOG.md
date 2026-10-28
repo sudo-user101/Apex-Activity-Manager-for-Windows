@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.4.1 (2026-10-28)
+
+- **Smoother.** The process list only makes the rows you can see and
+  updates them in place; while you scroll, it holds still and catches up a
+  moment after. Services, Startup apps and Users build rows as they scroll
+  into view; graphs reuse their shapes. Measured on the build's Windows
+  machine: a Processes update went from 22.5 ms to 2.8 ms (worst 34.7 →
+  4.9 ms), under one screen frame.
+- **Analyze shows results straight away:** the top level at once, each
+  folder filled in as soon as it's measured, biggest first.
+- **Network:** apps you open in the connection list stay open while it
+  refreshes.
+
 ## 1.4.0 (2026-10-28)
 
 - **Lumen AI** in the Assistant: CyberNet Labs' own cloud AI, as on the Mac.

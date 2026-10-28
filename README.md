@@ -96,7 +96,7 @@ fills and gentle animations.
 
 ## Install
 
-1. Download **Apex-Activity-Manager-1.4.0-Setup-x64.exe** from
+1. Download **Apex-Activity-Manager-1.4.1-Setup-x64.exe** from
    [Releases](https://github.com/sudo-user101/Apex-Activity-Manager-for-Windows/releases/latest).
 2. Run it. It installs for you only, without needing administrator rights
    (you can choose all users).

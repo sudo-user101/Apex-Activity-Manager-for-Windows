@@ -21,8 +21,11 @@ internal sealed class ProcessesPage : IPage
     readonly Button endTask = new() { Content = "End task", IsEnabled = false };
     readonly Button efficiency = new() { IsEnabled = false };
     readonly Button restoreAll = new() { Content = "Restore all", Visibility = Visibility.Collapsed };
-    readonly StackPanel rowsPanel = new();
-    readonly Dictionary<string, RowView> views = new();
+    // Only the rows on screen exist (virtualized, recycled as you scroll), like Task Manager.
+    readonly ItemsRepeater repeater = new() { Layout = new StackLayout() };
+    readonly ScrollViewer scroller = new() { Padding = new Thickness(0, 4, 0, 4) };
+    readonly Stack<RowView> pool = new();
+    DateTime lastScroll;
     readonly HashSet<string> expanded = new(), collapsedSections = new();
     readonly HeaderCell[] headers;
     ProcessSortKey sortKey = ProcessSortKey.Cpu;
@@ -75,7 +78,11 @@ internal sealed class ProcessesPage : IPage
         }
         Grid.SetRow(headerRow, 1); root.Children.Add(headerRow);
 
-        var list = Theme.Card(new ScrollViewer { Content = rowsPanel, Padding = new Thickness(0, 4, 0, 4) }, 0);
+        repeater.ItemTemplate = new RowFactory(this);
+        scroller.Content = repeater;
+        // While you scroll, the order holds still; it catches up a moment after.
+        scroller.ViewChanged += (_, e) => lastScroll = DateTime.UtcNow;
+        var list = Theme.Card(scroller, 0);
         Grid.SetRow(list, 2); root.Children.Add(list);
 
         root.KeyDown += (_, e) => { if (e.Key == Windows.System.VirtualKey.Delete) EndSelected(); };
@@ -99,42 +106,65 @@ internal sealed class ProcessesPage : IPage
 
         var tree = ProcessTree.Build(s.Processes, searchText, sortKey, ascending);
         var expandedNow = searchText.Length > 0 ? new HashSet<string>(tree.SelectMany(t => t.Children).Select(r => r.Id)) : expanded;
-        flat = ProcessTree.Flatten(tree, expandedNow, collapsedSections);
-        double maxMem = Math.Max(1, s.Memory.Total * 0.25), maxDisk = 10_000_000;
-        bool dark = Theme.IsDark(root);
+        expandedNowCache = expandedNow;
+        var next = ProcessTree.Flatten(tree, expandedNow, collapsedSections);
+        maxMem = Math.Max(1, s.Memory.Total * 0.25);
+        dark = Theme.IsDark(root);
 
-        // Reuse row views (no flicker, cheap); re-add only when the order changed.
-        var order = flat.Select(r => r.Id).ToList();
-        bool sameOrder = rowsPanel.Children.Count == order.Count
-                         && rowsPanel.Children.Cast<RowView>().Select(v => v.Id).SequenceEqual(order);
-        var rows = new List<UIElement>(flat.Count);
-        foreach (var r in flat)
+        bool scrolling = DateTime.UtcNow - lastScroll < TimeSpan.FromSeconds(1.2);
+        bool sameOrder = next.Count == flat.Count && next.Select(r => r.Id).SequenceEqual(flat.Select(r => r.Id));
+        if (scrolling && !sameOrder)
         {
-            if (!views.TryGetValue(r.Id, out var v))
-            {
-                v = new RowView(r.Id);
-                v.Pressed += OnRowPressed;
-                v.Toggled += OnRowToggled;
-                v.ContextRequested += (sender, e) => ShowMenu((RowView)sender, e);
-                views[r.Id] = v;
-            }
-            bool efficient = r.Path.Length > 0 && AppState.Efficient.Contains(r.Path);
-            bool expandable = r.IsSection || r.Children.Count > 0;
-            bool isOpen = r.IsSection ? !collapsedSections.Contains(r.Id) : expandedNow.Contains(r.Id);
-            v.Set(r, expandable, isOpen, r.Id == selectedId, efficient, maxMem, maxDisk, dark);
-            rows.Add(v);
+            // Keep the rows where they are; refresh their numbers (rows that ended stay until the scroll stops).
+            var byId = next.ToDictionary(r => r.Id);
+            next = flat.Select(r => byId.TryGetValue(r.Id, out var n) ? n : r).ToList();
+            sameOrder = true;
         }
-        if (!sameOrder)
+        flat = next;
+        if (sameOrder && repeater.ItemsSource != null)
         {
-            rowsPanel.Children.Clear();
-            foreach (var v in rows) rowsPanel.Children.Add(v);
+            // Same rows in the same places: update the ones on screen in place.
+            for (int i = 0; i < flat.Count; i++)
+                if (repeater.TryGetElement(i) is RowView v) Bind(v, flat[i]);
         }
-        foreach (var gone in views.Keys.Except(order).ToList()) views.Remove(gone);
-        if (selectedId != null && !order.Contains(selectedId)) selectedId = null;
+        else repeater.ItemsSource = flat.ToList();          // a new order: the visible rows are re-made (recycled)
+        if (selectedId != null && !flat.Any(r => r.Id == selectedId)) selectedId = null;
         UpdateButtons();
     }
 
     ProcessRow? Selected => flat.FirstOrDefault(r => r.Id == selectedId);
+    HashSet<string> expandedNowCache = new();
+    double maxMem = 1;
+    const double maxDisk = 10_000_000;
+    bool dark;
+
+    /// Puts one process's numbers on a (recycled) row.
+    void Bind(RowView v, ProcessRow r)
+    {
+        v.Id = r.Id;
+        bool efficient = r.Path.Length > 0 && AppState.Efficient.Contains(r.Path);
+        bool expandable = r.IsSection || r.Children.Count > 0;
+        bool isOpen = r.IsSection ? !collapsedSections.Contains(r.Id) : expandedNowCache.Contains(r.Id);
+        v.Set(r, expandable, isOpen, r.Id == selectedId, efficient, maxMem, maxDisk, dark);
+    }
+
+    /// Makes and recycles rows for the virtualized list.
+    sealed class RowFactory(ProcessesPage page) : IElementFactory
+    {
+        public UIElement GetElement(ElementFactoryGetArgs args)
+        {
+            if (!page.pool.TryPop(out var v))
+            {
+                v = new RowView("");
+                v.Pressed += page.OnRowPressed;
+                v.Toggled += page.OnRowToggled;
+                v.ContextRequested += (sender, e) => page.ShowMenu((RowView)sender, e);
+            }
+            if (args.Data is ProcessRow r) page.Bind(v, r);
+            return v;
+        }
+        public void RecycleElement(ElementFactoryRecycleArgs args) { if (args.Element is RowView v) page.pool.Push(v); }
+    }
 
     void OnRowPressed(RowView v)
     {
@@ -143,7 +173,7 @@ internal sealed class ProcessesPage : IPage
         selectedNames.Clear();
         foreach (var p in AppState.Latest.Processes)
             if (selectedTargets.Contains(p.Identity)) selectedNames[p.Identity] = p.DisplayName.Length > 0 ? p.DisplayName : p.Name;
-        foreach (var (_, rv) in views) rv.SetSelected(rv.Id == selectedId);
+        for (int i = 0; i < flat.Count; i++) if (repeater.TryGetElement(i) is RowView rv) rv.SetSelected(rv.Id == selectedId);
         UpdateButtons();
     }
 
@@ -260,7 +290,7 @@ internal sealed class HeaderCell : Button
 /// One row: section, program or process. Reused between refreshes.
 internal sealed class RowView : Grid
 {
-    public string Id { get; }
+    public string Id { get; set; }
     public event Action<RowView>? Pressed, Toggled;
     readonly TextBlock chevron = new() { FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 10, Width = 16, VerticalAlignment = VerticalAlignment.Center };
     readonly Image icon = new() { Width = 16, Height = 16, Margin = new Thickness(0, 0, 8, 0) };
@@ -270,6 +300,9 @@ internal sealed class RowView : Grid
     readonly TextBlock[] values = new TextBlock[4];
     readonly Border selection = new() { CornerRadius = new CornerRadius(6) };
     string iconPath = "";
+    int depth = -1;
+    bool? section;
+    readonly int[] heatNow = { -1, -1, -1, -1 };
 
     public static ColumnDefinition[] Columns() => new[]
     {
@@ -302,22 +335,30 @@ internal sealed class RowView : Grid
 
     public void Set(ProcessRow r, bool expandable, bool open, bool selected, bool efficient, double maxMem, double maxDisk, bool dark)
     {
-        chevron.Text = expandable ? (open ? "" : "") : "";
-        chevron.Margin = new Thickness(r.Depth * 18, 0, 6, 0);
-        name.Text = r.Name;
-        name.FontWeight = r.IsSection ? FontWeights.SemiBold : FontWeights.Normal;
-        name.Foreground = r.IsSection ? Theme.Secondary : Theme.Primary;
-        leaf.Visibility = efficient ? Visibility.Visible : Visibility.Collapsed;
-        leaf.Foreground = Theme.Solid(Theme.Green);
-        icon.Visibility = r.IsSection ? Visibility.Collapsed : Visibility.Visible;
-        if (!r.IsSection && r.Path != iconPath) { iconPath = r.Path; _ = Icons.Load(r.Path, icon); }
+        // Only what changed is touched: no new objects per update, no needless layout.
+        var glyph = expandable ? (open ? "" : "") : "";
+        if (chevron.Text != glyph) chevron.Text = glyph;
+        if (depth != r.Depth) { depth = r.Depth; chevron.Margin = new Thickness(r.Depth * 18, 0, 6, 0); }
+        if (name.Text != r.Name) name.Text = r.Name;
+        if (section != r.IsSection)
+        {
+            section = r.IsSection;
+            name.FontWeight = r.IsSection ? FontWeights.SemiBold : FontWeights.Normal;
+            name.Foreground = r.IsSection ? Theme.Secondary : Theme.Primary;
+            icon.Visibility = r.IsSection ? Visibility.Collapsed : Visibility.Visible;
+            foreach (var v in values) v.FontWeight = r.IsSection ? FontWeights.SemiBold : FontWeights.Normal;
+            leaf.Foreground = Theme.Solid(Theme.Green);
+        }
+        var leafVis = efficient ? Visibility.Visible : Visibility.Collapsed;
+        if (leaf.Visibility != leafVis) leaf.Visibility = leafVis;
+        if (!r.IsSection && r.Path != iconPath) { iconPath = r.Path; icon.Source = null; _ = Icons.Load(r.Path, icon); }
         string[] texts = { Fmt.Percent(r.Cpu), Fmt.Memory(r.Memory), DiskText(r.DiskPerSec), Fmt.Percent(r.Gpu) };
         int[] heat = { Heat.Level(r.Cpu, 100), Heat.Level(r.Memory, maxMem), Heat.Level(r.DiskPerSec, maxDisk), Heat.Level(r.Gpu, 100) };
         for (int i = 0; i < 4; i++)
         {
-            values[i].Text = texts[i];
-            values[i].FontWeight = r.IsSection ? FontWeights.SemiBold : FontWeights.Normal;
-            cells[i].Background = r.IsSection ? null : Theme.HeatBrush(heat[i], dark);
+            if (values[i].Text != texts[i]) values[i].Text = texts[i];
+            int h = r.IsSection ? 0 : heat[i];
+            if (heatNow[i] != h) { heatNow[i] = h; cells[i].Background = Theme.HeatBrush(h, dark); }
         }
         SetSelected(selected);
     }
@@ -325,6 +366,12 @@ internal sealed class RowView : Grid
     static string DiskText(double bytesPerSec) =>
         bytesPerSec < 50_000 ? "0 MB/s" : (bytesPerSec / 1e6).ToString("0.0") + " MB/s";
 
-    public void SetSelected(bool on) =>
-        selection.Background = on ? Theme.Solid(((SolidColorBrush)Theme.Accent).Color, 0.22) : null;
+    bool? selectedNow;
+    static Brush? selectedBrush;
+    public void SetSelected(bool on)
+    {
+        if (selectedNow == on) return;
+        selectedNow = on;
+        selection.Background = on ? (selectedBrush ??= Theme.Solid(((SolidColorBrush)Theme.Accent).Color, 0.22)) : null;
+    }
 }

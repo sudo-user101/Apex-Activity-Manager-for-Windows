@@ -47,6 +47,24 @@ public class DiskTreeTests
         Assert.False(tree.Remove(System.IO.Path.Combine(t.Path, "nothing")));
     }
 
+    [Fact] public void BuiltAFolderAtATimeMatchesOneWalk()
+    {
+        using var t = new TempDir();
+        t.File("Photos/a.jpg", 5000); t.File("Photos/2024/b.jpg", 3000); t.File("top.txt", 10); t.File("Docs/c.pdf", 7000);
+        var whole = DiskTree.Scan(t.Path);
+        var built = new DiskTree(t.Path);
+        built.AddRootFile(new DiskTree.FileEntry(System.IO.Path.Combine(t.Path, "top.txt"), 10, false));
+        foreach (var d in new[] { "Docs", "Photos" }) built.Graft(DiskTree.Scan(System.IO.Path.Combine(t.Path, d)));
+        Assert.Equal(whole.Top.Size, built.Top.Size);
+        Assert.Equal(whole.FileCount, built.FileCount);
+        Assert.Equal(8000, built.Find(System.IO.Path.Combine(t.Path, "Photos"))!.Size);
+        Assert.Equal(3000, built.Find(System.IO.Path.Combine(t.Path, "Photos", "2024"))!.Size);
+        Assert.Equal(whole.Largest().Select(f => f.Name), built.Largest().Select(f => f.Name));
+        Assert.Equal(new[] { "Docs", "Photos", "top.txt" }.OrderBy(x => x), DiskTree.Contents(built.Top).Select(c => System.IO.Path.GetFileName(c.Path)).OrderBy(x => x));
+        Assert.True(built.Remove(System.IO.Path.Combine(t.Path, "Photos", "a.jpg")));
+        Assert.Equal(10010, built.Top.Size);
+    }
+
     [Fact] public void LinksAreNotFollowed()
     {
         using var t = new TempDir();

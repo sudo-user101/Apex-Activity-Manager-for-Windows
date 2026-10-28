@@ -147,6 +147,37 @@ public sealed class DiskTree
         catch { return true; }     // can't tell: safer not to follow
     }
 
+    /// Built a folder at a time (Analyze shows each top folder as soon as it's
+    /// measured): a file directly in the root.
+    public void AddRootFile(FileEntry e)
+    {
+        FileCount++;
+        Top.Size += e.Size; Top.Files++;
+        if (e.OnlineOnly) Top.OnlineOnly += e.Size;
+        Top.Own.Add(e);
+        Top.Own.Sort((a, b) => b.Size.CompareTo(a.Size));
+        Offer(e);
+    }
+
+    /// …and a finished walk of one of the root's folders joined in.
+    public void Graft(DiskTree sub)
+    {
+        Top.Children.Add(sub.Top);
+        Top.Children.Sort((a, b) => b.Size.CompareTo(a.Size));
+        Top.Size += sub.Top.Size; Top.OnlineOnly += sub.Top.OnlineOnly; Top.Files += sub.Top.Files;
+        FileCount += sub.FileCount;
+        Unreadable += sub.Unreadable;
+        Stopped |= sub.Stopped;
+        foreach (var (k, v) in sub.folders) folders[k] = v;
+        foreach (var e in sub.Largest()) Offer(e);
+    }
+
+    void Offer(FileEntry e)
+    {
+        if (largest.Count < LargestKept) largest.Enqueue(e, e.Size);
+        else if (e.Size > largest.Peek().Size) { largest.Dequeue(); largest.Enqueue(e, e.Size); }
+    }
+
     /// After something here went to the Recycle Bin: it's taken out, and the
     /// folders above it shrink by its size. False when it isn't in the tree.
     public bool Remove(string path)

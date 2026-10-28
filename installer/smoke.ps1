@@ -44,6 +44,12 @@ Shot "assistant-lumen" @("--page=2", "--maximize", "--assistant=2")
 if (Test-Path "$env:TEMP\apex-crash.txt") { Get-Content "$env:TEMP\apex-crash.txt"; exit 1 }
 Write-Host "All pages opened without crashing."
 
+# Page update timings (smoothness).
+Remove-Item "$env:TEMP\apex-perftest.txt" -ErrorAction SilentlyContinue
+$pt = Start-Process $exe -ArgumentList "--perftest", "--maximize" -PassThru
+$pt.WaitForExit(180000) | Out-Null
+if (Test-Path "$env:TEMP\apex-perftest.txt") { Get-Content "$env:TEMP\apex-perftest.txt" } else { Write-Host "No perf report." }
+
 # Self-test: End task by identity, Efficiency mode, memory trim, clipboard history.
 Remove-Item "$env:TEMP\apex-selftest.txt" -ErrorAction SilentlyContinue
 $t = Start-Process $exe -ArgumentList "--selftest" -PassThru -Wait
