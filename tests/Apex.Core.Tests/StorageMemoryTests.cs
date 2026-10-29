@@ -323,3 +323,61 @@ public class AppHistoryTests
         Assert.Empty(AppHistory.FromJson("not json").Days);
     }
 }
+
+public class InstalledAppsTests
+{
+    static Dictionary<string, object?> E(params (string, object?)[] kv) => kv.ToDictionary(x => x.Item1, x => x.Item2);
+
+    [Fact] public void EntriesBecomeAppsOnlyWhenTheyAreApps()
+    {
+        var app = InstalledApps.FromEntry("{X}", E(("DisplayName", "Spotify"), ("Publisher", "Spotify AB"), ("UninstallString", "\"C:\\Users\\a\\AppData\\Roaming\\Spotify\\Spotify.exe\" /uninstall"),
+            ("EstimatedSize", 300000), ("InstallDate", "20260901"), ("DisplayIcon", "\"C:\\Users\\a\\AppData\\Roaming\\Spotify\\Spotify.exe\",0")), false)!;
+        Assert.Equal("Spotify", app.Name);
+        Assert.Equal(300000L * 1024, app.SizeBytes);
+        Assert.Equal(new DateTime(2026, 9, 1), app.Installed);
+        Assert.EndsWith("Spotify.exe", app.Icon);
+        Assert.Null(InstalledApps.FromEntry("k", E(("DisplayName", "Part of Windows"), ("SystemComponent", 1), ("UninstallString", "x")), true));
+        Assert.Null(InstalledApps.FromEntry("k", E(("DisplayName", "Update for X"), ("ParentKeyName", "X"), ("UninstallString", "x")), true));
+        Assert.Null(InstalledApps.FromEntry("k", E(("DisplayName", "No uninstaller")), true));
+        Assert.Null(InstalledApps.FromEntry("k", E(("UninstallString", "x")), true));
+    }
+
+    [Fact] public void TheSameProgramIsListedOnce()
+    {
+        var a = new InstalledApps.App("1", "7-Zip 24.08", "Igor Pavlov", "24.08", "", "u", "", 0, null, "", true);
+        var b = a with { Id = "2", InstallLocation = @"C:\Program Files\7-Zip" };
+        Assert.Equal(@"C:\Program Files\7-Zip", Assert.Single(InstalledApps.Distinct(new[] { a, b })).InstallLocation);
+    }
+
+    [Fact] public void LeftoversMatchTheAppButNeverSharedFolders()
+    {
+        var spotify = new InstalledApps.App("1", "Spotify", "Spotify AB", "1", "", "u", "", 0, null, "", false);
+        Assert.True(InstalledApps.BelongsTo(spotify, "Spotify"));
+        Assert.False(InstalledApps.BelongsTo(spotify, "Microsoft"));
+        Assert.False(InstalledApps.BelongsTo(spotify, "Sp"));
+        var zip = new InstalledApps.App("2", "7-Zip 24.08 (x64)", "Igor Pavlov", "24.08", "", "u", "", 0, null, "", true);
+        Assert.True(InstalledApps.BelongsTo(zip, "7-Zip"));
+        var vlc = new InstalledApps.App("3", "VLC media player", "VideoLAN", "3", "", "u", "", 0, null, "", true);
+        Assert.True(InstalledApps.BelongsTo(vlc, "vlc", "VideoLAN") || InstalledApps.BelongsTo(vlc, "VLC media player"));
+        Assert.False(InstalledApps.BelongsTo(vlc, "Plugins", "VideoLAN"));
+        Assert.False(InstalledApps.BelongsTo(vlc, "Chrome", "Google"));
+    }
+}
+
+public class DriveHealthTests
+{
+    static DriveHealth.Drive D(string health = "Healthy", int? wear = null, int? temp = null, long? rerr = null, long? hours = null) =>
+        new("Samsung SSD", "SSD", "NVMe", 1_000_000_000_000, health, "OK", wear, temp, rerr, rerr == null ? null : 0, hours);
+
+    [Fact] public void Verdicts()
+    {
+        Assert.Equal(Severity.Ok, DriveHealth.Judge(D()).Level);
+        Assert.Equal(Severity.Critical, DriveHealth.Judge(D("Unhealthy")).Level);
+        Assert.Equal(Severity.Warning, DriveHealth.Judge(D("Warning")).Level);
+        Assert.Equal(Severity.Warning, DriveHealth.Judge(D(wear: 95)).Level);
+        Assert.Equal(Severity.Warning, DriveHealth.Judge(D(rerr: 3)).Level);
+        Assert.Equal(Severity.Notice, DriveHealth.Judge(D(temp: 75)).Level);
+        Assert.Contains(DriveHealth.Judge(D()).Facts, f => f.Contains("administrator"));
+        Assert.Contains(DriveHealth.Judge(D(wear: 10, rerr: 0, hours: 8760)).Facts, f => f.Contains($"{1.0:0.0} years"));
+    }
+}

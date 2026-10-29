@@ -243,6 +243,47 @@ internal static class SelfTest
                 stop.Cancel(); lumenServer.Stop();
             }
 
+            // Pause / Resume / Priority, each through a verified handle.
+            {
+                var (pp, ip) = Child(); children.Add(pp);
+                Thread.Sleep(300);
+                bool AllSuspended() { pp.Refresh(); return pp.Threads.Cast<ProcessThread>().All(t => t.ThreadState == System.Diagnostics.ThreadState.Wait && t.WaitReason == ThreadWaitReason.Suspended); }
+                Check("Pause", ProcessActions.Pause(new[] { ip }).Done.Contains(ip) && AllSuspended());
+                Check("Resume", ProcessActions.Resume(new[] { ip }).Done.Contains(ip) && !AllSuspended());
+                Check("Priority: below normal", ProcessActions.SetPriority(new[] { ip }, 0x4000).Done.Contains(ip) && pp.PriorityClass == ProcessPriorityClass.BelowNormal
+                      && ProcessActions.PriorityOf(ip) == "Below normal", ProcessActions.PriorityOf(ip));
+                Check("Pause refuses Apex and System", ProcessActions.Pause(new[] { new ProcessIdentity(Environment.ProcessId, 1), new ProcessIdentity(4, 1) }).Refused.Count == 2);
+                var sigApex = Signature.Check(Environment.ProcessPath!);
+                var sigNotepad = Signature.Check(Path.Combine(Environment.SystemDirectory, "notepad.exe"));
+                Check("Signature: Windows' own (catalog-signed) program is signed and trusted", sigNotepad.Signed && sigNotepad.Trusted && sigNotepad.Signer.Contains("Microsoft"), sigNotepad.ToString());
+                Check("Signature: Apex (unsigned build) shows as not signed", !sigApex.Signed, sigApex.ToString());
+                var tampered = Path.Combine(Path.GetTempPath(), "apex-sig-test.exe");
+                File.Copy(Path.Combine(Environment.SystemDirectory, "notepad.exe"), tampered, true);
+                using (var fs = File.OpenWrite(tampered)) { fs.Seek(0, SeekOrigin.End); fs.WriteByte(0); }
+                var sigCopy = Signature.Check(tampered);
+                Check("Signature: a changed copy of a Windows program isn't trusted", !sigCopy.Trusted, sigCopy.ToString());
+                File.Delete(tampered);
+                var pwsh = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "PowerShell", "7", "pwsh.exe");
+                if (File.Exists(pwsh)) { var sp = Signature.Check(pwsh); Check("Signature: an embedded-signed program is signed and trusted", sp.Signed && sp.Trusted && sp.Signer.Contains("Microsoft"), sp.ToString()); }
+            }
+
+            // Remove apps: the list, the uninstall command, and leftovers (nothing is uninstalled here).
+            {
+                var installed = AppRemover.List();
+                lines.Add($"INFO installed apps: {installed.Count} ({installed.Count(a => a.Kind == InstalledApps.Source.Store)} from the Store); e.g. {string.Join(", ", installed.Take(5).Select(a => a.Name))}");
+                Check("Remove apps: the installed list", installed.Count >= 3);
+                Check("Remove apps: uninstall commands split", AppRemover.Split("\"C:\\Program Files\\X\\unins000.exe\" /SILENT") == (@"C:\Program Files\X\unins000.exe", "/SILENT")
+                      && AppRemover.Split(@"C:\Program Files\Y Z\uninstall.exe --remove") == (@"C:\Program Files\Y Z\uninstall.exe", "--remove")
+                      && AppRemover.Split("MsiExec.exe /I{1234}") == ("MsiExec.exe", "/I{1234}"));
+                var fakeDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Apex Selftest App");
+                Directory.CreateDirectory(fakeDir); File.WriteAllBytes(Path.Combine(fakeDir, "cache.bin"), new byte[4096]);
+                var fake = new InstalledApps.App("x", "Apex Selftest App 1.0", "Nobody", "1.0", "", "u", "", 0, null, "", false);
+                var left = AppRemover.Leftovers(fake);
+                Check("Remove apps: leftovers found, nothing shared", left.Any(l => l.Path.Equals(fakeDir, StringComparison.OrdinalIgnoreCase) && l.Size >= 4096)
+                      && !left.Any(l => Path.GetFileName(l.Path).Equals("Microsoft", StringComparison.OrdinalIgnoreCase)), string.Join("; ", left.Select(l => l.Path)));
+                Directory.Delete(fakeDir, true);
+            }
+
             // Windows Tweaks: on writes the value, off puts back exactly what was there (here: nothing).
             {
                 var t = WindowsTweaks.All.First(x => x.Id == "seconds");

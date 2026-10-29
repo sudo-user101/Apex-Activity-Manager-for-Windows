@@ -163,6 +163,8 @@ public sealed class MainWindow : Window
             root.Loaded += (_, _) => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => _ = FreeUpMemory.Show(root));
         if (args.Contains("--dialog=storage") && Content is FrameworkElement root2)
             root2.Loaded += (_, _) => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => _ = StorageView.Show(root2));
+        if (args.Contains("--dialog=removeapps") && Content is FrameworkElement root5)
+            root5.Loaded += (_, _) => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => _ = StorageView.Show(root5, removeApps: true));
         if (args.Contains("--dialog=analyze") && Content is FrameworkElement root3)
             root3.Loaded += (_, _) => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => _ = StorageView.Show(root3, analyze: true));
         // After a few readings, so it shows this PC's real figures.
@@ -174,7 +176,7 @@ public sealed class MainWindow : Window
     {
         var lines = new List<string>();
         await Task.Delay(6000);                                     // a few real readings first
-        foreach (var i in new[] { 0, 1, 7, 8 })
+        foreach (var i in new[] { 0, 1, 4, 6, 7 })
         {
             tabs.Select(i, notify: false); Show(i);
             await Task.Delay(2500);                                 // its lists loaded

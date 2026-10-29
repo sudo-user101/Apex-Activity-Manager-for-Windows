@@ -12,12 +12,14 @@ namespace Apex.UI;
 /// Recycle Bin. Nothing of yours is touched without you choosing it.
 internal static class StorageView
 {
-    public static async Task Show(FrameworkElement anchor, bool analyze = false)
+    public static async Task Show(FrameworkElement anchor, bool analyze = false, bool removeApps = false)
     {
         var tabs = new Pivot();
         tabs.Items.Add(new PivotItem { Header = "Clean", Content = CleanPane() });
         tabs.Items.Add(new PivotItem { Header = "Analyze", Content = AnalyzePane() });
+        tabs.Items.Add(new PivotItem { Header = "Remove apps", Content = RemoveAppsPane() });
         if (analyze) tabs.SelectedIndex = 1;
+        if (removeApps) tabs.SelectedIndex = 2;
         var d = new ContentDialog { Title = "Free Up Space", Content = tabs, CloseButtonText = "Done", XamlRoot = anchor.XamlRoot };
         d.Resources["ContentDialogMaxWidth"] = 820.0;
         try { await d.ShowAsync(); } catch { }
@@ -436,5 +438,112 @@ internal static class StorageView
         try { await d.ShowAsync(); } catch { }
         cts.Cancel();
         if (!done) InPlaceCompress.Discard(copies);
+    }
+
+    // ---- Remove apps ------------------------------------------------------------------
+
+    /// Every installed program, biggest first, each with Uninstall.
+    static UIElement RemoveAppsPane()
+    {
+        var root = new StackPanel { Spacing = 10, Width = 720 };
+        var search = new TextBox { PlaceholderText = "Search apps", Width = 300 };
+        var status = Theme.Text("Reading the installed apps…", 13, Theme.Secondary);
+        var top = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        top.Children.Add(search); top.Children.Add(status);
+        root.Children.Add(top);
+        var rows = new LazyRows();
+        root.Children.Add(new ScrollViewer { Content = rows.View, Height = 380 });
+        root.Children.Add(Theme.Caption("Uninstall closes the app, runs its own uninstaller (as Settings › Apps does), then offers what it left behind. Windows may ask for permission."));
+        List<InstalledApps.App> apps = new();
+        void Fill()
+        {
+            rows.Clear();
+            var q = search.Text.Trim();
+            var shown = apps.Where(a => q.Length == 0 || a.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || a.Publisher.Contains(q, StringComparison.OrdinalIgnoreCase))
+                            .OrderByDescending(a => a.SizeBytes).ToList();
+            status.Text = $"{shown.Count} apps";
+            foreach (var a in shown) { var app = a; rows.Add(() => AppRow(app, root, Reload)); }
+        }
+        void Reload() => _ = Task.Run(AppRemover.List).ContinueWith(t => MainWindow.Ui(() => { apps = t.Result; Fill(); }));
+        search.TextChanged += (_, _) => Fill();
+        Reload();
+        return root;
+    }
+
+    static UIElement AppRow(InstalledApps.App a, FrameworkElement anchor, Action reload)
+    {
+        var g = new Grid { ColumnSpacing = 12, Padding = new Thickness(6), MinHeight = 46 };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var icon = new Image { Width = 28, Height = 28, VerticalAlignment = VerticalAlignment.Center };
+        var iconPath = a.Icon.Length > 0 ? a.Icon : a.InstallLocation;
+        if (iconPath.Length > 0) _ = Icons.Load(iconPath, icon);
+        g.Children.Add(icon);
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(new TextBlock { Text = a.Name, TextTrimming = TextTrimming.CharacterEllipsis });
+        var detail = string.Join(" · ", new[] { a.Publisher, a.Version.Length > 0 ? "version " + a.Version : "", a.Installed is { } d ? "installed " + d.ToString("d MMM yyyy") : "" }.Where(x => x.Length > 0));
+        text.Children.Add(Theme.Text(detail, 12, Theme.Secondary));
+        Grid.SetColumn(text, 1); g.Children.Add(text);
+        var size = Theme.Text(a.SizeBytes > 0 ? Fmt.Bytes(a.SizeBytes) : "", 13, Theme.Secondary);
+        size.HorizontalAlignment = HorizontalAlignment.Right; size.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(size, 2); g.Children.Add(size);
+        var go = new Button { Content = "Uninstall…", IsEnabled = a.CanUninstall, VerticalAlignment = VerticalAlignment.Center };
+        go.Click += (_, _) => _ = RemoveApp(anchor, a, reload);
+        Grid.SetColumn(go, 3); g.Children.Add(go);
+        return g;
+    }
+
+    /// Asks, closes the app, runs its uninstaller, then offers the leftovers (to the Recycle Bin).
+    static async Task RemoveApp(FrameworkElement anchor, InstalledApps.App a, Action reload)
+    {
+        var body = new StackPanel { Spacing = 10, Width = 520 };
+        var text = Theme.Text($"{a.Name} is closed first if it’s open, then its own uninstaller runs (it may open its own window or ask for permission).", 14);
+        text.TextWrapping = TextWrapping.Wrap;
+        body.Children.Add(text);
+        var list = new StackPanel { Spacing = 4 };
+        body.Children.Add(list);
+        var d = new ContentDialog { Title = $"Uninstall {a.Name}?", Content = body, PrimaryButtonText = "Uninstall", CloseButtonText = "Cancel", XamlRoot = anchor.XamlRoot };
+        List<(AppRemover.Leftover L, CheckBox Box)> boxes = new();
+        int stage = 0;           // 0 asking, 1 removing, 2 leftovers, 3 done
+        d.PrimaryButtonClick += async (_, args) =>
+        {
+            if (stage == 3) return;
+            args.Cancel = true;
+            var deferral = args.GetDeferral();
+            if (stage == 0)
+            {
+                stage = 1;
+                d.IsPrimaryButtonEnabled = false;
+                text.Text = $"Uninstalling {a.Name}… follow its uninstaller if it opens a window.";
+                var (removed, message) = await AppRemover.Remove(a);
+                var left = await Task.Run(() => AppRemover.Leftovers(a));
+                if (!removed && message.Length > 0) text.Text = message + (left.Count > 0 ? " These are its files:" : "");
+                else text.Text = left.Count == 0 ? $"{a.Name} is uninstalled, and it left nothing behind." : $"{a.Name} is uninstalled. It left these behind; tick what to move to the Recycle Bin:";
+                foreach (var l in left)
+                {
+                    var box = new CheckBox { Content = $"{l.Where}: {Path.GetFileName(l.Path)} ({Fmt.Bytes(l.Size)})", IsChecked = removed };
+                    ToolTipService.SetToolTip(box, l.Path);
+                    list.Children.Add(box);
+                    boxes.Add((l, box));
+                }
+                stage = left.Count > 0 ? 2 : 3;
+                d.PrimaryButtonText = stage == 2 ? "Move to Recycle Bin" : "";
+                d.CloseButtonText = "Done";
+                d.IsPrimaryButtonEnabled = stage == 2;
+                reload();
+            }
+            else if (stage == 2)
+            {
+                int moved = 0;
+                foreach (var (l, box) in boxes.Where(b => b.Box.IsChecked == true)) if (StorageClean.ToRecycleBin(l.Path)) moved++;
+                text.Text = moved == 0 ? "Nothing was moved." : $"Moved {moved} to the Recycle Bin.";
+                list.Children.Clear();
+                stage = 3; d.PrimaryButtonText = ""; d.CloseButtonText = "Done";
+            }
+            deferral.Complete();
+        };
+        try { await d.ShowAsync(); } catch { }
     }
 }

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.0 (2026-10-29)
+
+- **Process details:** who signed a program and whether Windows trusts it
+  (Windows' own programs show as signed by Microsoft Windows; a changed
+  copy shows as not trusted), its connections, path and numbers.
+- **Pause / Resume** and **priority**, on the exact process you chose (a
+  reused process number is never touched).
+- **Remove apps** (Free Up Space): installed and Store apps with their
+  sizes; each removed with its own uninstaller after you confirm, then its
+  leftovers moved to the Recycle Bin.
+
 ## 1.5.0 (2026-10-28)
 
 - **Settings window:** General (update speed, start at sign-in, keep in the

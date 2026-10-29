@@ -213,6 +213,18 @@ internal sealed class ProcessesPage : IPage
         if (report.Message(selectedNames, "end") is { } message) _ = MainWindow.ShowMessage("Some weren’t ended", message);
     }
 
+    void PauseOrResume(bool pause)
+    {
+        if (Selected is not { IsSection: false } || selectedTargets.Length == 0) return;
+        Report(pause ? ProcessActions.Pause(selectedTargets) : ProcessActions.Resume(selectedTargets), pause ? "pause" : "resume");
+    }
+
+    void Report(ActionReport report, string verb)
+    {
+        if (report.Message(selectedNames, verb) is { } message) _ = MainWindow.ShowMessage("Some weren’t changed", message);
+        Refresh();
+    }
+
     void ToggleEfficiency()
     {
         if (Selected is not { IsSection: false } r || r.Path.Length == 0) return;
@@ -240,6 +252,18 @@ internal sealed class ProcessesPage : IPage
             menu.Items.Add(i);
         }
         Add("End task", "", EndSelected);
+        Add("Details", "\uE946", () => _ = ProcessInspector.Show(root, r));
+        bool paused = AppState.Latest.Processes.Where(p => selectedTargets.Contains(p.Identity)).All(p => p.Suspended) && selectedTargets.Length > 0;
+        Add(paused ? "Resume" : "Pause", paused ? "\uE768" : "\uE769", () => PauseOrResume(!paused));
+        var prio = new MenuFlyoutSubItem { Text = "Priority", Icon = Theme.Icon("\uE9D9") };
+        var current = selectedTargets.Length > 0 ? ProcessActions.PriorityOf(selectedTargets[0]) : "";
+        foreach (var (name, cls) in ProcessActions.Priorities)
+        {
+            var it = new RadioMenuFlyoutItem { Text = name, GroupName = "prio", IsChecked = name == current };
+            it.Click += (_, _) => Report(ProcessActions.SetPriority(selectedTargets, cls), "change the priority of");
+            prio.Items.Add(it);
+        }
+        menu.Items.Add(prio);
         Add(AppState.Efficient.Contains(r.Path) ? "Restore" : "Efficiency mode", "", ToggleEfficiency, r.Path.Length > 0);
         menu.Items.Add(new MenuFlyoutSeparator());
         Add("Open file location", "", () => ProcessActions.ShowInExplorer(r.Path), r.Path.Length > 0);

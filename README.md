@@ -34,7 +34,9 @@ fills and gentle animations.
   **Efficiency mode** to keep it running while it uses less: power-saving
   cores, lowest priority, first to give back memory, minimized; it follows
   the app's new processes and switches off when you bring the app back.
-  **Restore all** brings everything back.
+  **Restore all** brings everything back. **Details** shows who signed a
+  program and whether Windows trusts it, and its connections; **Pause** /
+  **Resume** and **priority** act on that exact process too.
 - **Free Up Memory** (Memory page): your apps by memory; Efficiency mode,
   trim their memory now, or close them and **Reopen** them later.
 - **Memory compression** (Memory page): whether it's on and what it holds,
@@ -57,7 +59,10 @@ fills and gentle animations.
   any drive: folders biggest first, the largest files, OneDrive's
   online-only files marked (nothing downloads). **Compress in place** makes
   a folder's screenshots and scans smaller, keeping their names, with the
-  originals in the Recycle Bin.
+  originals in the Recycle Bin. **Remove apps** lists installed and Store
+  apps with their sizes, removes one with its own uninstaller after you
+  confirm, then moves what it left behind to the Recycle Bin (never shared
+  folders).
 - **App history:** what each app used today or over 7 or 30 days, and
   **Events**: alerts and spikes with why each fired; alerts arrive as
   Windows notifications.
@@ -102,7 +107,7 @@ fills and gentle animations.
 
 ## Install
 
-1. Download **Apex-Activity-Manager-1.5.0-Setup-x64.exe** from
+1. Download **Apex-Activity-Manager-1.6.0-Setup-x64.exe** from
    [Releases](https://github.com/sudo-user101/Apex-Activity-Manager-for-Windows/releases/latest).
 2. Run it. It installs for you only, without needing administrator rights
    (you can choose all users).

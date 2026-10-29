@@ -226,6 +226,66 @@ internal static class ProcessActions
         finally { Native.CloseHandle(h); }
     }
 
+    // ---- Pause / Resume / Priority (the Mac's process menu), each through a verified handle ----
+
+    [DllImport("ntdll.dll")] static extern int NtSuspendProcess(IntPtr h);
+    [DllImport("ntdll.dll")] static extern int NtResumeProcess(IntPtr h);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetPriorityClass(IntPtr h, uint cls);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern uint GetPriorityClass(IntPtr h);
+    const uint PROCESS_SUSPEND_RESUME = 0x0800, PROCESS_SET_INFORMATION = 0x0200;
+
+    /// The priorities offered (realtime isn't: it can freeze the whole PC).
+    public static readonly (string Name, uint Class)[] Priorities =
+    {
+        ("Low", 0x40), ("Below normal", 0x4000), ("Normal", 0x20), ("Above normal", 0x8000), ("High", 0x80),
+    };
+
+    public static ActionReport Pause(IEnumerable<ProcessIdentity> targets) => Act(targets, PROCESS_SUSPEND_RESUME, h => NtSuspendProcess(h) == 0);
+    public static ActionReport Resume(IEnumerable<ProcessIdentity> targets) => Act(targets, PROCESS_SUSPEND_RESUME, h => NtResumeProcess(h) == 0);
+    public static ActionReport SetPriority(IEnumerable<ProcessIdentity> targets, uint cls) => Act(targets, PROCESS_SET_INFORMATION, h => SetPriorityClass(h, cls));
+
+    /// The process's priority name, or "".
+    public static string PriorityOf(ProcessIdentity t)
+    {
+        var h = Native.OpenProcess(Native.PROCESS_QUERY_LIMITED_INFORMATION, false, t.Pid);
+        if (h == IntPtr.Zero) return "";
+        try
+        {
+            if (!Native.GetProcessTimes(h, out long created, out _, out _, out _) || created != t.CreateTime) return "";
+            var c = GetPriorityClass(h);
+            return Priorities.FirstOrDefault(p => p.Class == c).Name ?? (c == 0x100 ? "Realtime" : "");
+        }
+        finally { Native.CloseHandle(h); }
+    }
+
+    /// Does something to each process only if it's still the chosen one, through the handle that was checked.
+    static ActionReport Act(IEnumerable<ProcessIdentity> targets, uint access, Func<IntPtr, bool> action)
+    {
+        var report = new ActionReport();
+        foreach (var t in targets)
+        {
+            if (t.Pid <= 4 || t.Pid == Environment.ProcessId) { report.Add(t, ActionResult.Protected, null); continue; }
+            if (!t.IsComplete) { report.Add(t, ActionResult.Unverifiable, null); continue; }
+            var h = Native.OpenProcess(access | Native.PROCESS_QUERY_LIMITED_INFORMATION, false, t.Pid);
+            if (h == IntPtr.Zero)
+            {
+                int e = Marshal.GetLastWin32Error();
+                var r = e == Native.ERROR_INVALID_PARAMETER ? ActionResult.Exited
+                      : e == Native.ERROR_ACCESS_DENIED ? (Check(t) == ActionResult.Done ? ActionResult.NeedsAdmin : Check(t)) : ActionResult.Failed;
+                report.Add(t, r, r == ActionResult.Failed ? new System.ComponentModel.Win32Exception(e).Message : null);
+                continue;
+            }
+            try
+            {
+                if (!Native.GetProcessTimes(h, out long created, out _, out _, out _)) { report.Add(t, ActionResult.Unverifiable, null); continue; }
+                if (created != t.CreateTime) { report.Add(t, ActionResult.Reused, null); continue; }
+                report.Add(t, action(h) ? ActionResult.Done : ActionResult.Failed, null);
+            }
+            finally { Native.CloseHandle(h); }
+        }
+        return report;
+    }
+
     public static void ShowInExplorer(string path)
     {
         if (path.Length > 0) Process.Start("explorer.exe", $"/select,\"{path}\"");
