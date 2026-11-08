@@ -22,7 +22,9 @@ internal sealed class AssistantPage : IPage
     readonly ScrollViewer scroll = new();
     readonly TextBox input = new() { PlaceholderText = "Ask about your PC, or say what to do (“close everything except Spotify”, “steady 60 FPS in my game”)", AcceptsReturn = false };
     readonly Button send = new() { Content = Theme.Icon("", 16), Padding = new Thickness(14, 8, 14, 8) };
-    readonly RadioButtons mode = new() { MaxColumns = 3 };
+    readonly RadioButtons mode = new() { MaxColumns = 4 };
+    readonly HyperlinkButton cloudChange = new() { Content = "Change Key", Visibility = Visibility.Collapsed };
+    UIElement? cloudPanel;
     readonly HyperlinkButton lumenSignOut = new() { Content = "Sign Out of Lumen AI", Visibility = Visibility.Collapsed };
     UIElement? lumenPanel;
     readonly TextBlock footnote = Theme.Text("", 12, Theme.Secondary);
@@ -42,14 +44,20 @@ internal sealed class AssistantPage : IPage
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var titles = new StackPanel { Spacing = 2 };
         titles.Children.Add(Theme.Title("Assistant"));
-        titles.Children.Add(Theme.Text("Answers about this PC, worked out on this PC.", 14, Theme.Secondary));
+        titles.Children.Add(Theme.Text("Answers about this PC, in plain words.", 14, Theme.Secondary));
         head.Children.Add(titles);
         var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, VerticalAlignment = VerticalAlignment.Center };
-        mode.Items.Add("Apex Agent"); mode.Items.Add("Local AI"); mode.Items.Add("Lumen AI");
+        mode.Items.Add("Apex Agent"); mode.Items.Add("Local AI"); mode.Items.Add("Lumen AI"); mode.Items.Add("Cloud AI");
         mode.SelectedIndex = Settings.Get("assistantMode", 0);
         // --assistant=N opens on that mode (the build's screenshots).
         if (Environment.GetCommandLineArgs().FirstOrDefault(a => a.StartsWith("--assistant=")) is { } am && int.TryParse(am[12..], out var mi)) mode.SelectedIndex = mi;
-        right.Children.Add(lumenSignOut); right.Children.Add(model); right.Children.Add(mode);
+        right.Children.Add(lumenSignOut); right.Children.Add(cloudChange); right.Children.Add(model); right.Children.Add(mode);
+        cloudChange.Click += (_, _) => { CloudKeys.Forget(); _ = ModeChanged(); };
+        model.SelectionChanged += (_, _) =>
+        {
+            if (model.SelectedItem is not string m) return;
+            if (IsCloud) CloudKeys.Model = m; else Settings.Set("assistantModel", m);
+        };
         lumenSignOut.Click += (_, _) => { LumenAccount.SignOut(); _ = ModeChanged(); };
         Grid.SetColumn(right, 1); head.Children.Add(right);
         root.Children.Add(head);
@@ -82,13 +90,43 @@ internal sealed class AssistantPage : IPage
 
     bool Local => mode.SelectedIndex == 1;
     bool IsLumen => mode.SelectedIndex == 2;
+    bool IsCloud => mode.SelectedIndex == 3;
     bool LumenReady => Lumen.IsLive && LumenAccount.HasKey;
 
     async Task ModeChanged()
     {
         model.Visibility = Visibility.Collapsed;
         lumenSignOut.Visibility = Visibility.Collapsed;
+        cloudChange.Visibility = Visibility.Collapsed;
         if (lumenPanel != null) { messages.Children.Remove(lumenPanel); lumenPanel = null; if (messages.Children.Count == 0) Welcome(); }
+        if (cloudPanel != null) { messages.Children.Remove(cloudPanel); cloudPanel = null; if (messages.Children.Count == 0) Welcome(); }
+        if (IsCloud)
+        {
+            if (!CloudKeys.Ready)
+            {
+                footnote.Text = "Use your own key from an AI provider. Your question and this PC’s readings go to that provider to answer it.";
+                messages.Children.Clear();
+                cloudPanel = CloudPanel();
+                messages.Children.Add(cloudPanel);
+                return;
+            }
+            var service = CloudProviders.Title(CloudKeys.Provider);
+            footnote.Text = $"Asking {service} for its models…";
+            cloudChange.Visibility = Visibility.Visible;
+            try
+            {
+                var offered = await CloudChat.Models(CloudKeys.Provider, CloudKeys.Base, CloudKeys.Key!);
+                if (!IsCloud) return;
+                model.Items.Clear();
+                foreach (var name in offered) model.Items.Add(name);
+                model.SelectedIndex = offered.Count == 0 ? -1 : Math.Max(0, offered.IndexOf(CloudKeys.Model));
+                model.Visibility = offered.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+                footnote.Text = offered.Count == 0 ? $"{service} didn’t offer any chat models for this key."
+                    : $"{service} answers with your key. Your question and this PC’s readings are sent to {service}.";
+            }
+            catch (CloudChatException e) { footnote.Text = e.Message; }
+            return;
+        }
         if (IsLumen)
         {
             if (LumenReady)
@@ -118,7 +156,6 @@ internal sealed class AssistantPage : IPage
         foreach (var m in models) model.Items.Add(m);
         var saved = Settings.Get("assistantModel", "");
         model.SelectedIndex = Math.Max(0, models.IndexOf(saved));
-        model.SelectionChanged += (_, _) => Settings.Set("assistantModel", model.SelectedItem as string ?? "");
         model.Visibility = Visibility.Visible;
         footnote.Text = $"{model.SelectedItem} answers on this PC, through {s.Name}. Nothing leaves the PC.";
     }
@@ -144,8 +181,10 @@ internal sealed class AssistantPage : IPage
         if (text.Length == 0 || answering != null) return;
         input.Text = "";
         if (IsLumen && !LumenReady) { _ = ModeChanged(); return; }    // the connect screen says what to do
+        if (IsCloud && !CloudKeys.Ready) { _ = ModeChanged(); return; }
         Bubble(text, mine: true);
-        if (IsLumen) _ = AskLumen(text);
+        if (IsCloud) _ = AskCloud(text);
+        else if (IsLumen) _ = AskLumen(text);
         else if (Local) _ = AskLocal(text);
         else Agent(text);
     }
@@ -193,6 +232,79 @@ internal sealed class AssistantPage : IPage
         }
         catch (Exception e) { Render(block, "The local model didn’t answer: " + e.Message); }
         finally { answering = null; send.IsEnabled = true; }
+    }
+
+    async Task AskCloud(string text)
+    {
+        if (model.SelectedItem is not string m) { Bubble("Pick a model first (top right).", mine: false); return; }
+        history.Add(("user", text));
+        var bubble = Bubble("…", mine: false);
+        var block = (RichTextBlock)bubble.Children[0];
+        var answer = new System.Text.StringBuilder();
+        answering = new CancellationTokenSource();
+        send.IsEnabled = false;
+        try
+        {
+            var system = LocalChat.Instructions + "\n\nThis PC right now:\n" + AgentBridge.ReadingsText();
+            await CloudChat.Ask(CloudKeys.Provider, CloudKeys.Base, CloudKeys.Key!, m, history, system, piece => MainWindow.Ui(() =>
+            {
+                answer.Append(piece);
+                Render(block, answer.ToString());
+                scroll.ChangeView(null, scroll.ScrollableHeight, null, true);
+            }), answering.Token);
+            history.Add(("assistant", answer.ToString()));
+        }
+        catch (CloudChatException e) { Render(block, e.Message); history.RemoveAt(history.Count - 1); }
+        catch (OperationCanceledException) { history.RemoveAt(history.Count - 1); }
+        finally { answering = null; send.IsEnabled = true; }
+    }
+
+    /// Cloud AI before a key is saved: pick the provider, paste the key, Connect.
+    UIElement CloudPanel()
+    {
+        var p = new StackPanel { Spacing = 12, MaxWidth = 520, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 24, 0, 0) };
+        var title = Theme.Text("Cloud AI with your own key", 26, bold: true);
+        title.HorizontalAlignment = HorizontalAlignment.Center;
+        p.Children.Add(title);
+        var blurb = Theme.Text("Ask a provider’s models about this PC. You pay the provider for what you use; the key stays in Windows’ Credential Manager.", 14, Theme.Secondary);
+        blurb.TextWrapping = TextWrapping.Wrap; blurb.TextAlignment = TextAlignment.Center;
+        p.Children.Add(blurb);
+        var provider = new ComboBox { Header = "Provider", MinWidth = 300 };
+        foreach (var x in CloudProviders.All) provider.Items.Add(CloudProviders.Title(x));
+        provider.SelectedIndex = Array.IndexOf(CloudProviders.All, CloudKeys.Provider);
+        var address = new TextBox { Header = "Address", PlaceholderText = "https://…/v1", Text = CloudKeys.CustomBase };
+        var key = new PasswordBox { Header = "API key", PlaceholderText = "Paste your key" };
+        var getKey = new HyperlinkButton { Content = "Get a key", Padding = new Thickness(0) };
+        var problem = Theme.Text("", 13, Theme.Solid(Theme.Red)); problem.TextWrapping = TextWrapping.Wrap;
+        var connect = new Button { Content = "Connect", Style = (Style)Application.Current.Resources["AccentButtonStyle"] };
+        void Changed()
+        {
+            var x = CloudProviders.All[Math.Max(0, provider.SelectedIndex)];
+            address.Visibility = x == CloudProvider.Custom ? Visibility.Visible : Visibility.Collapsed;
+            getKey.Visibility = CloudProviders.KeyPage(x) is { } k ? Visibility.Visible : Visibility.Collapsed;
+            if (CloudProviders.KeyPage(x) is { } page) getKey.NavigateUri = new Uri(page);
+        }
+        provider.SelectionChanged += (_, _) => Changed();
+        Changed();
+        connect.Click += async (_, _) =>
+        {
+            var x = CloudProviders.All[Math.Max(0, provider.SelectedIndex)];
+            var b = (CloudProviders.Base(x) ?? address.Text).Trim().TrimEnd('/');
+            if (x == CloudProvider.Custom && CloudProviders.CheckBase(b) is { } bad) { problem.Text = bad; return; }
+            if (key.Password.Trim().Length == 0) { problem.Text = "Paste your key first."; return; }
+            connect.IsEnabled = false; problem.Text = "";
+            try
+            {
+                await CloudChat.Models(x, b, key.Password.Trim());     // checks the key; nothing is spent
+                CloudKeys.Provider = x; if (x == CloudProvider.Custom) CloudKeys.CustomBase = b;
+                if (!CloudKeys.Save(key.Password)) { problem.Text = "Windows didn’t let Apex keep the key in Credential Manager."; return; }
+                await ModeChanged();
+            }
+            catch (CloudChatException e) { problem.Text = e.Message; }
+            finally { connect.IsEnabled = true; }
+        };
+        foreach (var e in new UIElement[] { provider, address, key, getKey, connect, problem }) p.Children.Add(e);
+        return p;
     }
 
     async Task AskLumen(string text)

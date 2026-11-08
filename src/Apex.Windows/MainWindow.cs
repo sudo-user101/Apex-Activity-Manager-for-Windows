@@ -37,6 +37,7 @@ public sealed class MainWindow : Window
     };
     readonly ColumnDefinition rightInset = new() { Width = new GridLength(140) };
     readonly Sampler sampler = new();
+    readonly Notices notices = new();
     int page;
     Tray? tray;
     TrayPanel? trayPanel;
@@ -82,9 +83,15 @@ public sealed class MainWindow : Window
         Grid.SetColumnSpan(titleBar, 2); root.Children.Add(titleBar);
         Grid.SetRow(tabs, 1); root.Children.Add(tabs);
         // Pages sit on a slightly raised layer with a rounded top-left corner, as Windows 11 apps do.
+        // Notices (a newer version, a crash last time) sit above the page.
+        var pageArea = new Grid();
+        pageArea.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        pageArea.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        pageArea.Children.Add(notices);
+        Grid.SetRow(host, 1); pageArea.Children.Add(host);
         var stage = new Border
         {
-            Child = host, Background = Theme.Res("LayerFillColorDefaultBrush"), CornerRadius = new CornerRadius(10, 0, 0, 0),
+            Child = pageArea, Background = Theme.Res("LayerFillColorDefaultBrush"), CornerRadius = new CornerRadius(10, 0, 0, 0),
             BorderBrush = Theme.CardStroke, BorderThickness = new Thickness(1, 1, 0, 0),
         };
         Grid.SetRow(stage, 1); Grid.SetColumn(stage, 1); root.Children.Add(stage);
@@ -126,6 +133,14 @@ public sealed class MainWindow : Window
         if (startArgs.Any(a => a.StartsWith("--settings="))) DispatcherQueue.TryEnqueue(() => SettingsWindow.Show());
         // Started at sign-in: straight to the notification area.
         if (startArgs.Contains("--background") && Settings.Get("keepInTray", true)) DispatcherQueue.TryEnqueue(() => AppWindow.Hide());
+        notices.ShowCrash(CrashCheck.Pending());
+        UpdateCheck.Start();
+        // --show-notices: both strips with sample text (the build's screenshot).
+        if (startArgs.Contains("--show-notices"))
+        {
+            notices.ShowCrash("System.Exception: a sample crash for the screenshot\n   at Apex.Sample()");
+            UpdateCheck.Pretend("9.9.9");
+        }
         History.Load();
         Efficiency.Start();
         ClipboardHistory.Shared.Start();

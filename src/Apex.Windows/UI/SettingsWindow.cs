@@ -382,13 +382,43 @@ internal sealed class SettingsWindow : Window
         var clear = new Button { Content = "Clear" };
         clear.Click += (_, _) => ClipboardHistory.Shared.Clear();
         var signOut = new Button { Content = "Sign Out", IsEnabled = LumenAccount.HasKey };
+        var vtRemove = new Button { Content = "Remove", IsEnabled = VirusTotalClient.Key != null };
+        var cloudRemove = new Button { Content = "Remove", IsEnabled = CloudKeys.Key != null };
+        cloudRemove.Click += (_, _) => { CloudKeys.Forget(); cloudRemove.IsEnabled = false; };
+        vtRemove.Click += (_, _) => { VirusTotalClient.RemoveKey(); vtRemove.IsEnabled = false; };
         signOut.Click += (_, _) => { LumenAccount.SignOut(); signOut.IsEnabled = false; };
         s.Children.Add(Section("What Apex keeps",
             Line("Clipboard history", "In memory only, gone when Apex quits. Copies from password managers are never kept.", clear),
             Line("Lumen AI key", "In Windows’ Credential Manager, never in Apex’s settings file.", signOut),
+            Line("Cloud AI key", "Yours, from the provider you chose; in Credential Manager, and only sent to that provider.", cloudRemove),
+            Line("VirusTotal key", "Yours, free from VirusTotal; in Credential Manager, and only ever sent to VirusTotal.", vtRemove),
             Line("Settings", "In your user folder (AppData › Local › Apex). Nothing is sent anywhere.", new TextBlock())));
+        var checkNow = new Button { Content = "Check Now" };
+        var checkResult = Theme.Caption("");
+        checkResult.Visibility = Visibility.Collapsed;
+        checkNow.Click += async (_, _) =>
+        {
+            checkNow.IsEnabled = false;
+            var (answer, v) = await UpdateCheck.Check();
+            checkResult.Text = answer switch
+            {
+                UpdateCheck.Answer.UpToDate => $"You have the newest version ({UpdateCheck.Current}).",
+                UpdateCheck.Answer.Newer => $"Apex {v} is available. Download it from the strip above the page.",
+                _ => "GitHub didn’t answer. Check your internet connection and try again.",
+            };
+            checkResult.Visibility = Visibility.Visible;
+            checkNow.IsEnabled = true;
+        };
+        s.Children.Add(Section("New versions",
+            Line("Check for new versions once a day", "Apex tells you when one is out and links to the download. It never installs anything by itself.",
+                Switch(UpdateCheck.Enabled, on => UpdateCheck.Enabled = on)),
+            Line("Check now", "", checkNow), checkResult));
         s.Children.Add(Section("What leaves this PC",
-            Line("Nothing, unless you ask", "Apex Agent and Local AI answer on this PC. Lumen AI, the speed test and the public IP lookup only go out when you use them.", new TextBlock())));
+            Line("Nothing, unless you ask", "Apex Agent and Local AI answer on this PC. Lumen AI, the speed test and the public IP lookup only go out when you use them.", new TextBlock()),
+            Line("New version check (GitHub)", "Once a day unless you turn it off: asks GitHub for the newest version number.", new TextBlock()),
+            Line("Cloud AI", "Only when you ask in Cloud AI: your question, the chat so far and this PC’s readings, to the provider you chose.", new TextBlock()),
+            Line("Crash reports", "Only if you click Report: opens GitHub in your browser, and you read it before sending.", new TextBlock()),
+            Line("Check on VirusTotal", "Only when you click it: the file’s fingerprint. The whole file only if you choose Upload and agree.", new TextBlock())));
         return s;
     }
 

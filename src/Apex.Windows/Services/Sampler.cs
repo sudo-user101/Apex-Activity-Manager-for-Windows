@@ -121,7 +121,7 @@ internal sealed class Sampler : IDisposable
         try
         {
             using var s = new System.Management.ManagementObjectSearcher("SELECT NumberOfCores FROM Win32_Processor");
-            return s.Get().Cast<System.Management.ManagementObject>().Sum(o => Convert.ToInt32(o["NumberOfCores"]));
+            return s.Get().Cast<System.Management.ManagementObject>().Sum(o => SafeNum.ToInt(o["NumberOfCores"]));
         }
         catch { return Environment.ProcessorCount; }
     }
@@ -132,10 +132,10 @@ internal sealed class Sampler : IDisposable
         {
             using var d = new System.Management.ManagementObjectSearcher("SELECT Index, Model FROM Win32_DiskDrive");
             foreach (System.Management.ManagementObject o in d.Get())
-                diskModels[Convert.ToInt32(o["Index"])] = (o["Model"] as string)?.Trim() ?? "";
+                diskModels[SafeNum.ToInt(o["Index"])] = (o["Model"] as string)?.Trim() ?? "";
             using var g = new System.Management.ManagementObjectSearcher("SELECT Name, AdapterRAM FROM Win32_VideoController");
             foreach (System.Management.ManagementObject o in g.Get())
-                gpuNames.Add(((o["Name"] as string) ?? "GPU", Convert.ToInt64(o["AdapterRAM"] ?? 0L)));
+                gpuNames.Add(((o["Name"] as string) ?? "GPU", SafeNum.ToLong(o["AdapterRAM"])));
         }
         catch { }
     }
@@ -276,8 +276,8 @@ internal sealed class Sampler : IDisposable
             long used = 0, size = 0;
             foreach (System.Management.ManagementObject o in s.Get())
             {
-                used += Convert.ToInt64(o["CurrentUsage"]) * 1024 * 1024;
-                size += Convert.ToInt64(o["AllocatedBaseSize"]) * 1024 * 1024;
+                used += SafeNum.ToLong(o["CurrentUsage"]) * 1024 * 1024;
+                size += SafeNum.ToLong(o["AllocatedBaseSize"]) * 1024 * 1024;
             }
             pageFile = (used, size);
         }

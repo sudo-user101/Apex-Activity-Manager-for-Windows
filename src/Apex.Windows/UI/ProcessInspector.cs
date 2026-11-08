@@ -31,6 +31,8 @@ internal static class ProcessInspector
                         : $"Signed by {r.Signer}, but Windows doesn’t trust this signature (expired, revoked, or the file was changed).";
         }));
 
+        if (path.Length > 0) root.Children.Add(new VirusTotalCard(path).View);
+
         // What it's using.
         var use = new Grid { ColumnSpacing = 20 };
         string[] labels = { "CPU", "Memory", "Disk", "Processes", "Threads", "Handles" };

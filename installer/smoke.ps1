@@ -41,10 +41,14 @@ Shot "memory-compression" @("--page=1", "--maximize", "--perf=memory", "--dialog
 Shot "analyze" @("--page=1", "--maximize", "--dialog=analyze")
 Shot "removeapps" @("--page=1", "--maximize", "--dialog=removeapps")
 Shot "assistant-lumen" @("--page=2", "--maximize", "--assistant=2")
+Shot "assistant-cloud" @("--page=2", "--maximize", "--assistant=3")
 Shot "settings-general" @("--page=1", "--settings=general")
 Shot "settings-utilities" @("--page=1", "--settings=utilities")
 Shot "settings-tweaks" @("--page=1", "--settings=tweaks")
 Shot "settings-alerts" @("--page=1", "--settings=alerts")
+Shot "settings-privacy" @("--page=1", "--settings=privacy")
+Shot "notices" @("--page=0", "--maximize", "--show-notices")
+Shot "drivedoctor" @("--page=1", "--maximize", "--perf=disk", "--dialog=drivedoctor")
 
 if (Test-Path "$env:TEMP\apex-crash.txt") { Get-Content "$env:TEMP\apex-crash.txt"; exit 1 }
 Write-Host "All pages opened without crashing."

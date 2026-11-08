@@ -128,7 +128,20 @@ internal static class NetworkDoctorView
         try { await shown; } catch { }
     }
 
-    static UIElement Card(Finding f)
+    static UIElement Card(Finding f) => FindingCard.Make(f, key => key.Length == 0 ? null : (key switch
+    {
+        "sign-in" => "Open the Sign-In Page", "wifi-settings" => "Wi-Fi Settings", _ => "Network Settings",
+    }, () => _ = Windows.System.Launcher.LaunchUriAsync(new Uri(key switch
+    {
+        "sign-in" => "http://www.msftconnecttest.com/redirect", "wifi-settings" => "ms-settings:network-wifi", _ => "ms-settings:network-status",
+    }))));
+}
+
+/// One Doctor finding, as on the Mac: title, why it matters, evidence, likely
+/// causes, numbered steps, and a button for its action. Shared by the Doctors.
+internal static class FindingCard
+{
+    public static UIElement Make(Finding f, Func<string, (string Label, Action Run)?> action)
     {
         var p = new StackPanel { Spacing = 6 };
         var color = f.Severity switch { Severity.Critical => Theme.Red, Severity.Warning => Theme.Yellow, Severity.Ok => Theme.Green, _ => Theme.Gpu };
@@ -141,13 +154,10 @@ internal static class NetworkDoctorView
         if (f.Causes.Count > 0) { var c = Theme.Text("Likely: " + string.Join("; ", f.Causes), 12); c.TextWrapping = TextWrapping.Wrap; p.Children.Add(c); }
         int n = 1;
         foreach (var s in f.Steps) { var t = Theme.Text($"{n++}. {s}", 13); t.TextWrapping = TextWrapping.Wrap; p.Children.Add(t); }
-        if (f.Action.Length > 0)
+        if (action(f.Action) is { } a)
         {
-            var b = new Button { Content = f.Action switch { "sign-in" => "Open the Sign-In Page", "wifi-settings" => "Wi-Fi Settings", _ => "Network Settings" } };
-            b.Click += (_, _) => _ = Windows.System.Launcher.LaunchUriAsync(new Uri(f.Action switch
-            {
-                "sign-in" => "http://www.msftconnecttest.com/redirect", "wifi-settings" => "ms-settings:network-wifi", _ => "ms-settings:network-status",
-            }));
+            var b = new Button { Content = a.Label };
+            b.Click += (_, _) => a.Run();
             p.Children.Add(b);
         }
         return Theme.Card(p, 12);

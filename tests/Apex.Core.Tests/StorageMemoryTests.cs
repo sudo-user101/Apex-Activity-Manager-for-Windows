@@ -381,3 +381,17 @@ public class DriveHealthTests
         Assert.Contains(DriveHealth.Judge(D(wear: 10, rerr: 0, hours: 8760)).Facts, f => f.Contains($"{1.0:0.0} years"));
     }
 }
+
+public class DriveHealthNamesTests
+{
+    [Fact]
+    public void CodesBecomePlainWords()
+    {
+        Assert.Equal("SSD", DriveHealth.MediaName(4));
+        Assert.Equal("NVMe", DriveHealth.BusName(17));
+        Assert.Equal("USB", DriveHealth.BusName(7));
+        Assert.Equal("Unhealthy", DriveHealth.HealthName(2));
+        Assert.Equal("", DriveHealth.HealthName(5));
+        Assert.Equal("Predictive failure", DriveHealth.OperationalName(5));
+    }
+}

@@ -10,6 +10,7 @@ public static class Fmt
     /// 1 536 000 → "1.5 MB" (decimal units, like the rest of Windows' storage UI).
     public static string Bytes(double bytes)
     {
+        bytes = SafeNum.Finite(bytes);
         if (bytes < 0) bytes = 0;
         string[] units = { "bytes", "KB", "MB", "GB", "TB", "PB" };
         int i = 0;
@@ -21,6 +22,7 @@ public static class Fmt
     /// Memory in binary units (what Windows shows for RAM): 8589934592 → "8.0 GB".
     public static string Memory(double bytes)
     {
+        bytes = SafeNum.Finite(bytes);
         if (bytes < 0) bytes = 0;
         string[] units = { "bytes", "KB", "MB", "GB", "TB" };
         int i = 0;
@@ -32,6 +34,7 @@ public static class Fmt
     /// Bytes per second → "3.2 MB/s"; under 1 KB/s → "0 KB/s".
     public static string Rate(double bytesPerSec)
     {
+        bytesPerSec = SafeNum.Finite(bytesPerSec);
         if (bytesPerSec < 1000) return "0 KB/s";
         return Bytes(bytesPerSec) + "/s";
     }
@@ -39,19 +42,19 @@ public static class Fmt
     /// Network speeds in bits, like Windows' Ethernet / Wi-Fi pages: "12.4 Mbps".
     public static string Bits(double bytesPerSec)
     {
-        double bits = bytesPerSec * 8;
+        double bits = Math.Max(0, SafeNum.Finite(bytesPerSec)) * 8;
         if (bits < 1000) return $"{bits:0} bps";
         if (bits < 1e6) return (bits / 1e3).ToString("0.0", C) + " Kbps";
         if (bits < 1e9) return (bits / 1e6).ToString("0.0", C) + " Mbps";
         return (bits / 1e9).ToString("0.0", C) + " Gbps";
     }
 
-    public static string Percent(double v) => v.ToString("0", C) + "%";
+    public static string Percent(double v) => SafeNum.Finite(v).ToString("0", C) + "%";
 
     /// 3725 s → "1:02:05"; 75 s → "1:15".
     public static string Clock(TimeSpan t)
     {
-        var s = (int)Math.Max(0, t.TotalSeconds);
+        var s = (int)Math.Clamp(SafeNum.Finite(t.TotalSeconds), 0, int.MaxValue);
         return s >= 3600 ? $"{s / 3600}:{s % 3600 / 60:00}:{s % 60:00}" : $"{s / 60}:{s % 60:00}";
     }
 
@@ -62,7 +65,7 @@ public static class Fmt
     /// 45 → "45 s", 200 → "3 min 20 s", 3900 → "1 h 5 min".
     public static string Duration(double seconds)
     {
-        var s = (int)Math.Round(Math.Max(0, seconds));
+        var s = (int)Math.Clamp(Math.Round(SafeNum.Finite(seconds)), 0, int.MaxValue);
         if (s < 60) return $"{s} s";
         if (s < 3600) return s % 60 == 0 ? $"{s / 60} min" : $"{s / 60} min {s % 60} s";
         return $"{s / 3600} h {s % 3600 / 60} min";

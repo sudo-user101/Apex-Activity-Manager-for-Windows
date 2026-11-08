@@ -303,7 +303,44 @@ internal sealed class DiskDetail : Detail
         activeT = AddStat("Active time"); resp = AddStat("Average response time"); read = AddStat("Read speed"); write = AddStat("Write speed");
         capacity = AddStat("Capacity"); free = AddStat("Free"); system = AddStat("System disk");
         AddStatsCard();
+        View.Children.Add(Theme.Card(health));
+        health.Children.Add(Theme.Text("Drive health", 15, bold: true));
+        health.Children.Add(Theme.Caption("Checking what Windows reports about this drive…"));
+        _ = LoadHealth();
     }
+
+    readonly StackPanel health = new() { Spacing = 6 };
+
+    /// "Disk 0 (C:)" → 0.
+    static int? Index(string name) =>
+        name.StartsWith("Disk ") && int.TryParse(new string(name.AsSpan(5).ToArray().TakeWhile(char.IsDigit).ToArray()), out var i) ? i : null;
+
+    async Task LoadHealth()
+    {
+        var all = await Task.Run(DriveHealthReader.Read);
+        health.Children.RemoveAt(1);
+        if (Index(name) is not { } i || !all.TryGetValue(i, out var d))
+        {
+            health.Children.Add(Theme.Caption("Windows didn’t report this drive’s health."));
+            return;
+        }
+        var v = DriveHealth.Judge(d);
+        var color = v.Level switch { Severity.Critical => Theme.Red, Severity.Warning => Theme.Red, Severity.Notice => Theme.Yellow, _ => Theme.Green };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        row.Children.Add(Theme.Pill(v.Level == Severity.Ok ? "Good" : v.Level == Severity.Notice ? "Keep an eye on it" : "At risk", color));
+        row.Children.Add(Theme.Text(v.Title, 14, bold: true));
+        health.Children.Add(row);
+        health.Children.Add(Theme.Text(v.Detail, 13, Theme.Secondary));
+        var kind = string.Join(" · ", new[] { d.Media, d.Bus, d.Size > 0 ? Fmt.Bytes(d.Size) : "" }.Where(x => x.Length > 0));
+        if (kind.Length > 0) health.Children.Add(Theme.Caption(kind));
+        foreach (var f in v.Facts) health.Children.Add(Theme.Caption("• " + f));
+        var doctor = new Button { Content = "Run Drive Doctor", Margin = new Thickness(0, 6, 0, 0) };
+        doctor.Click += (_, _) => _ = DriveDoctorView.Show(View, name);
+        health.Children.Add(doctor);
+        // --dialog=drivedoctor: opens it on the first drive (the build's screenshot).
+        if (!doctorShown && Environment.GetCommandLineArgs().Contains("--dialog=drivedoctor")) { doctorShown = true; _ = DriveDoctorView.Show(View, name); }
+    }
+    static bool doctorShown;
     public override void Update(Snapshot s)
     {
         var d = s.Disks.FirstOrDefault(x => x.Name == name);

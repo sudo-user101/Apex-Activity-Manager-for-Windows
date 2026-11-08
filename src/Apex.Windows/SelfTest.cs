@@ -253,6 +253,10 @@ internal static class SelfTest
                 Check("Priority: below normal", ProcessActions.SetPriority(new[] { ip }, 0x4000).Done.Contains(ip) && pp.PriorityClass == ProcessPriorityClass.BelowNormal
                       && ProcessActions.PriorityOf(ip) == "Below normal", ProcessActions.PriorityOf(ip));
                 Check("Pause refuses Apex and System", ProcessActions.Pause(new[] { new ProcessIdentity(Environment.ProcessId, 1), new ProcessIdentity(4, 1) }).Refused.Count == 2);
+                var drives = DriveHealthReader.Read();
+                foreach (var (num, drv) in drives) lines.Add($"INFO drive {num}: {drv.Name} · {drv.Media} · {drv.Bus} · health {drv.Health} · {DriveHealth.Judge(drv).Title}");
+                Check("Drive health: Windows reports the drives", drives.Count > 0 && drives.Values.All(x => x.Health.Length > 0 || x.Operational.Length > 0),
+                      string.Join("; ", drives.Values.Select(x => x.Name)));
                 var sigApex = Signature.Check(Environment.ProcessPath!);
                 var sigNotepad = Signature.Check(Path.Combine(Environment.SystemDirectory, "notepad.exe"));
                 Check("Signature: Windows' own (catalog-signed) program is signed and trusted", sigNotepad.Signed && sigNotepad.Trusted && sigNotepad.Signer.Contains("Microsoft"), sigNotepad.ToString());

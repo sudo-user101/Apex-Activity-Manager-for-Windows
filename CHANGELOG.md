@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.7.0 (2026-11-08)
+
+- **Safer:** values from Windows and other programs that are out of range
+  no longer stop Apex, and numbers on screen never show "NaN".
+- **New version notice:** Apex asks GitHub once a day and shows Download or
+  Skip. It never installs anything itself. Settings › Privacy has the
+  switch and Check Now.
+- **Crash notice:** after a crash, Apex offers a GitHub report you read
+  before sending, with no file paths or user name in it.
+- **Drive health and Drive Doctor** (Disk page): what Windows reports about
+  each drive in plain words, then findings with safe steps: failing health,
+  wear, errors, heat, almost full, repeated unexpected shutdowns. Buttons
+  free up space, run Windows' read-only disk check, or open Windows Backup.
+- **Check on VirusTotal** (process details), with your own free key: how
+  many scanners flagged the file. Uploading a file needs a second
+  confirmation, and the key is only ever sent to VirusTotal.
+- **Cloud AI** in the Assistant, with your own key: Anthropic, Google Gemini,
+  Mistral, OpenAI, OpenRouter or any OpenAI-compatible address.
+
 ## 1.6.0 (2026-10-29)
 
 - **Process details:** who signed a program and whether Windows trusts it

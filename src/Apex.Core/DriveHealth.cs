@@ -11,6 +11,20 @@ public static class DriveHealth
 
     public sealed record Verdict(Severity Level, string Title, string Detail, List<string> Facts);
 
+    // Windows' storage service codes → plain words. Pure: tested.
+    public static string MediaName(int m) => m switch { 3 => "Hard disk", 4 => "SSD", 5 => "Storage-class memory", _ => "" };
+    public static string BusName(int b) => b switch
+    {
+        1 => "SCSI", 3 => "ATA", 7 => "USB", 8 => "RAID", 10 => "SAS", 11 => "SATA", 12 => "SD card", 13 => "MMC",
+        14 => "Virtual", 15 => "Virtual (file)", 16 => "Storage Spaces", 17 => "NVMe", _ => "",
+    };
+    public static string HealthName(int h) => h switch { 0 => "Healthy", 1 => "Warning", 2 => "Unhealthy", _ => "" };
+    public static string OperationalName(ushort o) => o switch
+    {
+        2 => "OK", 3 => "Degraded", 5 => "Predictive failure", 6 => "Error", 10 => "Stopped", 11 => "In service",
+        13 => "Lost communication", 53264 => "Online", 53265 => "Not ready", 53266 => "No media", 53269 => "Failed media", _ => "",
+    };
+
     /// Plain words for one drive. Pure: tested.
     public static Verdict Judge(Drive d)
     {
